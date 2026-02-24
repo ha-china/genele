@@ -1,1 +1,139 @@
-{"config": {"step": {"user": {"title": "连接 Genelec Smart IP 设备", "description": "输入您的 Genelec Smart IP 设备详细信息。", "data": {"host": "主机地址", "port": "端口", "username": "用户名", "password": "密码", "api_version": "API 版本"}}, "confirm": {"title": "发现 Genelec Smart IP 设备", "description": "我们发现了一个 Genelec Smart IP 设备：{name} 位于 {host}。请确认并输入身份验证详细信息。", "data": {"username": "用户名", "password": "密码"}}}, "error": {"cannot_connect": "连接设备失败。请检查主机地址和凭据。", "unknown": "发生意外错误。", "discovery_failed": "发现失败。", "not_genelec_device": "这不是 Genelec 设备。", "no_ip_address": "未找到设备的 IP 地址。", "no_devices_found": "未找到设备。"}, "abort": {"already_configured": "该设备已配置。", "discovery_failed": "发现失败。", "not_genelec_device": "这不是 Genelec 设备。", "no_ip_address": "未找到设备的 IP 地址。"}}, "entity": {"sensor": {"cpu_temperature": {"name": "CPU 温度"}, "cpu_load": {"name": "CPU 负载"}, "uptime": {"name": "运行时间"}, "network_traffic": {"name": "网络流量"}, "bass_level": {"name": "低音电平"}, "tweeter_level": {"name": "高音电平"}, "input_level": {"name": "输入电平"}, "api_version": {"name": "API 版本"}, "firmware_version": {"name": "固件版本"}, "model": {"name": "型号"}, "mac_address": {"name": "MAC 地址"}, "barcode": {"name": "条形码"}, "hardware_id": {"name": "硬件 ID"}, "host_ip": {"name": "主机 IP"}, "receiver_ip": {"name": "接收器 IP"}, "dante_name": {"name": "Dante 名称"}, "dante_friendly_name": {"name": "Dante 友好名称"}, "hostname": {"name": "主机名"}, "zone_name": {"name": "区域名称"}, "zone_id": {"name": "区域 ID"}, "current_profile": {"name": "当前配置文件"}, "startup_profile": {"name": "启动配置文件"}}, "select": {"power_state": {"name": "电源状态", "state": {"ACTIVE": "活动", "STANDBY": "待机", "BOOT": "启动", "AOIPBOOT": "AoIP 启动", "ISS_SLEEP": "ISS 休眠", "PWR_FAIL": "电源故障"}}, "input_source": {"name": "输入源", "state": {"A": "模拟输入", "AoIP01": "AoIP 通道 1", "AoIP02": "AoIP 通道 2"}}}, "switch": {"mute": {"name": "静音"}, "rj45_leds": {"name": "RJ45 指示灯"}, "clip_led": {"name": "削波指示灯"}}}}
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "连接 Genelec Smart IP 设备",
+        "description": "输入您的 Genelec Smart IP 设备详细信息。",
+        "data": {
+          "host": "主机地址",
+          "port": "端口",
+          "username": "用户名",
+          "password": "密码",
+          "api_version": "API 版本"
+        }
+      },
+      "confirm": {
+        "title": "发现 Genelec Smart IP 设备",
+        "description": "我们发现了一个 Genelec Smart IP 设备：{name} 位于 {host}。请确认并输入身份验证详细信息。",
+        "data": {
+          "username": "用户名",
+          "password": "密码"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "连接设备失败。请检查主机地址和凭据。",
+      "unknown": "发生意外错误。",
+      "discovery_failed": "发现失败。",
+      "not_genelec_device": "这不是 Genelec 设备。",
+      "no_ip_address": "未找到设备的 IP 地址。",
+      "no_devices_found": "未找到设备。"
+    },
+    "abort": {
+      "already_configured": "该设备已配置。",
+      "discovery_failed": "发现失败。",
+      "not_genelec_device": "这不是 Genelec 设备。",
+      "no_ip_address": "未找到设备的 IP 地址。"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cpu_temperature": {"name": "CPU 温度"},
+      "cpu_load": {"name": "CPU 负载"},
+      "uptime": {"name": "运行时间"},
+      "network_traffic": {"name": "网络流量"},
+      "bass_level": {"name": "低音电平"},
+      "tweeter_level": {"name": "高音电平"},
+      "input_level": {"name": "输入电平"},
+      "api_version": {"name": "API 版本"},
+      "firmware_version": {"name": "固件版本"},
+      "model": {"name": "型号"},
+      "mac_address": {"name": "MAC 地址"},
+      "barcode": {"name": "条形码"},
+      "hardware_id": {"name": "硬件 ID"},
+      "host_ip": {"name": "主机 IP"},
+      "receiver_ip": {"name": "接收器 IP"},
+      "dante_name": {"name": "Dante 名称"},
+      "dante_friendly_name": {"name": "Dante 友好名称"},
+      "hostname": {"name": "主机名"},
+      "zone_name": {"name": "区域名称"},
+      "zone_id": {"name": "区域 ID"},
+      "current_profile": {"name": "当前配置文件"},
+      "startup_profile": {"name": "启动配置文件"}
+    },
+    "select": {
+      "power_state": {
+        "name": "电源状态",
+        "state": {
+          "active": "活动",
+          "standby": "待机",
+          "boot": "启动",
+          "aoipboot": "AoIP 启动",
+          "iss_sleep": "ISS 休眠",
+          "pwr_fail": "电源故障"
+        }
+      },
+      "input_source": {
+        "name": "输入源",
+        "state": {
+          "analog": "模拟输入",
+          "aoip01": "AoIP 通道 1",
+          "aoip02": "AoIP 通道 2"
+        }
+      }
+    },
+    "switch": {
+      "mute": {"name": "静音"},
+      "rj45_leds": {"name": "RJ45 指示灯"},
+      "clip_led": {"name": "削波指示灯"}
+    }
+  },
+  "services": {
+    "wake_up": {
+      "name": "唤醒",
+      "description": "将设备从待机模式唤醒。"
+    },
+    "set_standby": {
+      "name": "设置待机",
+      "description": "将设备设置为待机模式。"
+    },
+    "boot_device": {
+      "name": "启动设备",
+      "description": "启动设备。"
+    },
+    "set_volume_level": {
+      "name": "设置音量",
+      "description": "设置音量级别。",
+      "fields": {
+        "level": {
+          "name": "级别",
+          "description": "音量级别（-130 到 0 dB）。"
+        }
+      }
+    },
+    "set_led_intensity": {
+      "name": "设置 LED 亮度",
+      "description": "设置 LED 亮度。",
+      "fields": {
+        "intensity": {
+          "name": "亮度",
+          "description": "LED 亮度（0-100）。"
+        }
+      }
+    },
+    "restore_profile": {
+      "name": "恢复配置文件",
+      "description": "恢复保存的配置文件。",
+      "fields": {
+        "profile_id": {
+          "name": "配置文件 ID",
+          "description": "要恢复的配置文件 ID。"
+        },
+        "startup": {
+          "name": "启动",
+          "description": "设置为启动配置文件。"
+        }
+      }
+    }
+  }
+}

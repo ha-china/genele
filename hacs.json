@@ -2,6 +2,6 @@
   "name": "Genelec Smart IP",
   "content_in_root": false,
   "render_readme": true,
-  "country": ["CN"],
+  "country": "CN",
   "homeassistant": "2024.1.0"
 }

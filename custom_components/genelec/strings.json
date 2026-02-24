@@ -65,20 +65,20 @@
       "power_state": {
         "name": "Power State",
         "state": {
-          "ACTIVE": "Active",
-          "STANDBY": "Standby",
-          "BOOT": "Boot",
-          "AOIPBOOT": "AoIP Boot",
-          "ISS_SLEEP": "ISS Sleep",
-          "PWR_FAIL": "Power Fail"
+          "active": "Active",
+          "standby": "Standby",
+          "boot": "Boot",
+          "aoipboot": "AoIP Boot",
+          "iss_sleep": "ISS Sleep",
+          "pwr_fail": "Power Fail"
         }
       },
       "input_source": {
         "name": "Input Source",
         "state": {
-          "A": "Analog",
-          "AoIP01": "AoIP Channel 1",
-          "AoIP02": "AoIP Channel 2"
+          "analog": "Analog",
+          "aoip01": "AoIP Channel 1",
+          "aoip02": "AoIP Channel 2"
         }
       }
     },
