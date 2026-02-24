@@ -4,64 +4,64 @@
 [![GitHub release](https://img.shields.io/github/release/ha-china/genele.svg)](https://github.com/ha-china/genele/releases)
 [![License](https://img.shields.io/github/license/ha-china/genele.svg)](LICENSE)
 
-Home Assistant 自定义集成，用于控制 Genelec Smart IP 系列监听音箱。
+A custom integration for Home Assistant to control Genelec Smart IP series studio monitors.
 
-## 安装
+## Installation
 
-### 通过 HACS 安装（推荐）
+### Via HACS (Recommended)
 
-1. 打开 HACS
-2. 点击 "集成"
-3. 点击右上角的 "+" 按钮
-4. 搜索 "Genelec Smart IP"
-5. 点击 "下载"
+1. Open HACS
+2. Go to "Integrations"
+3. Click the "+" button in the top right corner
+4. Search for "Genelec Smart IP"
+5. Click "Download"
 
-### 手动安装
+### Manual Installation
 
-1. 下载此仓库
-2. 将 `custom_components/genelec` 文件夹复制到你的 Home Assistant 配置目录下的 `custom_components` 文件夹中
-3. 重启 Home Assistant
+1. Download this repository
+2. Copy the `custom_components/genelec` folder to your Home Assistant configuration directory under `custom_components`
+3. Restart Home Assistant
 
-## 配置
+## Configuration
 
-1. 在 Home Assistant 中，进入 "设置" -> "设备与服务"
-2. 点击右下角的 "+" 按钮
-3. 搜索 "Genelec Smart IP"
-4. 按照提示完成配置
+1. In Home Assistant, go to "Settings" -> "Devices & Services"
+2. Click the "+" button in the bottom right corner
+3. Search for "Genelec Smart IP"
+4. Follow the setup instructions
 
-## 支持的功能
+## Features
 
-- 媒体播放器控制（音量、静音、输入源切换）
-- 电源状态监控和远程控制
-- 设备信息传感器（温度、CPU 负载、运行时间等）
-- LED 亮度控制
-- 配置文件管理
-- Dante/AoIP 设置
+- Media player control (volume, mute, input source switching)
+- Power state monitoring and remote control
+- Device information sensors (temperature, CPU load, uptime, etc.)
+- LED brightness control
+- Profile management
+- Dante/AoIP settings
 
-## 支持的设备
+## Supported Devices
 
-- Genelec Smart IP 系列监听音箱（需要固件支持 API）
+- Genelec Smart IP series studio monitors (requires firmware with API support)
 
-## 服务
+## Services
 
 ### wake_up
-唤醒设备
+Wake up the device from standby/sleep mode.
 
 ### set_standby
-设置设备进入待机模式
+Put the device in standby mode.
 
 ### boot_device
-启动设备
+Boot the device.
 
 ### set_volume_level
-设置音量（dB）
+Set volume level in dB.
 
 ### set_led_intensity
-设置 LED 亮度
+Set the front panel LED intensity.
 
 ### restore_profile
-恢复保存的配置文件
+Restore a saved profile from device memory.
 
-## 许可证
+## License
 
 MIT License
