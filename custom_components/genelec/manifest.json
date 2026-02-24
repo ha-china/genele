@@ -1,14 +1,1 @@
-{
-  "domain": "genelec",
-  "name": "Genelec Smart IP",
-  "codeowners": ["@ha-china"],
-  "config_flow": true,
-  "dependencies": [],
-  "documentation": "https://github.com/ha-china/genele",
-  "integration_type": "device",
-  "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/ha-china/genele/issues",
-  "requirements": ["zeroconf>=0.132.0"],
-  "version": "0.1.0",
-  "zeroconf": ["_smart_ip._tcp.local."]
-}
+{"domain": "genelec", "name": "Genelec Smart IP", "codeowners": ["@ha-china"], "config_flow": true, "dependencies": [], "documentation": "https://github.com/ha-china/genele", "integration_type": "device", "iot_class": "local_polling", "issue_tracker": "https://github.com/ha-china/genele/issues", "requirements": ["zeroconf>=0.132.0"], "version": "0.1.0", "zeroconf": ["_smart_ip._tcp.local."]}
