@@ -1,0 +1,139 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Genelec Smart IP",
+        "description": "Enter your Genelec Smart IP device details.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "api_version": "API Version"
+        }
+      },
+      "confirm": {
+        "title": "Discovered Genelec Smart IP",
+        "description": "We found a Genelec Smart IP device: {name} at {host}. Please confirm and enter authentication details.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the device. Please check the host address and credentials.",
+      "unknown": "An unexpected error occurred.",
+      "discovery_failed": "Discovery failed.",
+      "not_genelec_device": "This is not a Genelec device.",
+      "no_ip_address": "No IP address found for the device.",
+      "no_devices_found": "No devices found."
+    },
+    "abort": {
+      "already_configured": "This device has already been configured.",
+      "discovery_failed": "Discovery failed.",
+      "not_genelec_device": "This is not a Genelec device.",
+      "no_ip_address": "No IP address found for the device."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cpu_temperature": {"name": "CPU Temperature"},
+      "cpu_load": {"name": "CPU Load"},
+      "uptime": {"name": "Uptime"},
+      "network_traffic": {"name": "Network Traffic"},
+      "bass_level": {"name": "Bass Level"},
+      "tweeter_level": {"name": "Tweeter Level"},
+      "input_level": {"name": "Input Level"},
+      "api_version": {"name": "API Version"},
+      "firmware_version": {"name": "Firmware Version"},
+      "model": {"name": "Model"},
+      "mac_address": {"name": "MAC Address"},
+      "barcode": {"name": "Barcode"},
+      "hardware_id": {"name": "Hardware ID"},
+      "host_ip": {"name": "Host IP"},
+      "receiver_ip": {"name": "Receiver IP"},
+      "dante_name": {"name": "Dante Name"},
+      "dante_friendly_name": {"name": "Dante Friendly Name"},
+      "hostname": {"name": "Hostname"},
+      "zone_name": {"name": "Zone Name"},
+      "zone_id": {"name": "Zone ID"},
+      "current_profile": {"name": "Current Profile"},
+      "startup_profile": {"name": "Startup Profile"}
+    },
+    "select": {
+      "power_state": {
+        "name": "Power State",
+        "state": {
+          "ACTIVE": "Active",
+          "STANDBY": "Standby",
+          "BOOT": "Boot",
+          "AOIPBOOT": "AoIP Boot",
+          "ISS_SLEEP": "ISS Sleep",
+          "PWR_FAIL": "Power Fail"
+        }
+      },
+      "input_source": {
+        "name": "Input Source",
+        "state": {
+          "A": "Analog",
+          "AoIP01": "AoIP Channel 1",
+          "AoIP02": "AoIP Channel 2"
+        }
+      }
+    },
+    "switch": {
+      "mute": {"name": "Mute"},
+      "rj45_leds": {"name": "RJ45 LEDs"},
+      "clip_led": {"name": "Clip LED"}
+    }
+  },
+  "services": {
+    "wake_up": {
+      "name": "Wake Up",
+      "description": "Wake up the device from standby."
+    },
+    "set_standby": {
+      "name": "Set Standby",
+      "description": "Put the device in standby mode."
+    },
+    "boot_device": {
+      "name": "Boot Device",
+      "description": "Boot the device from off state."
+    },
+    "set_volume_level": {
+      "name": "Set Volume Level",
+      "description": "Set the volume level.",
+      "fields": {
+        "level": {
+          "name": "Level",
+          "description": "Volume level in dB (-130 to 0)."
+        }
+      }
+    },
+    "set_led_intensity": {
+      "name": "Set LED Intensity",
+      "description": "Set the LED intensity.",
+      "fields": {
+        "intensity": {
+          "name": "Intensity",
+          "description": "LED intensity (0-100)."
+        }
+      }
+    },
+    "restore_profile": {
+      "name": "Restore Profile",
+      "description": "Restore a saved profile.",
+      "fields": {
+        "profile_id": {
+          "name": "Profile ID",
+          "description": "ID of the profile to restore."
+        },
+        "startup": {
+          "name": "Startup",
+          "description": "Set as startup profile."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,84 @@
+wake_up:
+  name: Wake up
+  description: Wake up the device from standby/sleep mode.
+  target:
+    entity:
+      domain: media_player
+      integration: genelec
+
+set_standby:
+  name: Set standby
+  description: Put the device in standby mode.
+  target:
+    entity:
+      domain: media_player
+      integration: genelec
+
+boot_device:
+  name: Boot device
+  description: Boot the device.
+  target:
+    entity:
+      domain: media_player
+      integration: genelec
+
+set_volume_level:
+  name: Set volume level
+  description: Set the volume level in dB.
+  target:
+    entity:
+      domain: media_player
+      integration: genelec
+  fields:
+    level:
+      name: Level
+      description: Volume level in dB (-130.0 to 0.0)
+      required: true
+      selector:
+        number:
+          min: -130.0
+          max: 0.0
+          step: 0.1
+          mode: slider
+
+set_led_intensity:
+  name: Set LED intensity
+  description: Set the front panel LED intensity.
+  target:
+    entity:
+      integration: genelec
+  fields:
+    intensity:
+      name: Intensity
+      description: LED intensity percentage (0-100)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          mode: slider
+
+restore_profile:
+  name: Restore profile
+  description: Restore a saved profile from device memory.
+  target:
+    entity:
+      integration: genelec
+  fields:
+    profile_id:
+      name: Profile ID
+      description: Profile ID to restore (0-5)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 5
+          step: 1
+    startup:
+      name: Set as startup profile
+      description: Set this profile as the default after power reset
+      required: false
+      default: false
+      selector:
+        boolean:
