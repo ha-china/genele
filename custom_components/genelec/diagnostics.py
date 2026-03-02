@@ -21,23 +21,39 @@ async def async_get_config_entry_diagnostics(
 
     diagnostics_data = {
         "entry": redacted_data,
-        "devices": [],
+        "device": {},
+        "coordinator": {},
     }
 
-    # Get device info from data
-    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    for platform_name, platform_data in entry_data.items():
-        if isinstance(platform_data, list):
-            for entity in platform_data:
-                if hasattr(entity, "_device") and hasattr(entity._device, "_device_info"):
-                    device_info = entity._device._device_info
-                    diagnostics_data["devices"].append({
-                        "model": device_info.get("model"),
-                        "fw_id": device_info.get("fwId"),
-                        "api_ver": device_info.get("apiVer"),
-                        "category": device_info.get("category"),
-                        "hw_id": device_info.get("hwId"),
-                    })
+    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if entry_data is None:
+        return diagnostics_data
+
+    device_info = getattr(entry_data, "device_info", {}) or {}
+    device_id = getattr(entry_data, "device_id", {}) or {}
+    diagnostics_data["device"] = {
+        "model": device_info.get("model"),
+        "fw_id": device_info.get("fwId"),
+        "api_ver": device_info.get("apiVer"),
+        "category": device_info.get("category"),
+        "hw_id": device_info.get("hwId"),
+        "mac": device_id.get("mac"),
+        "barcode": device_id.get("barcode"),
+    }
+
+    coordinator_data = getattr(entry_data, "coordinator", None)
+    coordinator_payload = getattr(coordinator_data, "data", {}) if coordinator_data else {}
+    diagnostics_data["coordinator"] = {
+        "volume": coordinator_payload.get("volume", {}),
+        "power": coordinator_payload.get("power", {}),
+        "inputs": coordinator_payload.get("inputs", {}),
+        "events": coordinator_payload.get("events", {}),
+        "network_ipv4": coordinator_payload.get("network_ipv4", {}),
+        "aoip_ipv4": coordinator_payload.get("aoip_ipv4", {}),
+        "aoip_identity": coordinator_payload.get("aoip_identity", {}),
+        "zone_info": coordinator_payload.get("zone_info", {}),
+        "profile_list": coordinator_payload.get("profile_list", {}),
+    }
 
     return diagnostics_data
 

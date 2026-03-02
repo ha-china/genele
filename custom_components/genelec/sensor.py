@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any, TYPE_CHECKING
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
@@ -178,6 +178,8 @@ class GenelecCPUTemperatureSensor(GenelecBaseSensor):
     _attr_entity_registry_enabled_default = True
 
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "cpu_temperature"
     _attr_icon = "mdi:thermometer"
 
@@ -202,6 +204,8 @@ class GenelecCPULoadSensor(GenelecBaseSensor):
     _attr_entity_registry_enabled_default = True
 
     _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "cpu_load"
     _attr_icon = "mdi:cpu-64-bit"
 
@@ -225,6 +229,7 @@ class GenelecUptimeSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "uptime"
     _attr_icon = "mdi:clock-outline"
 
@@ -249,6 +254,8 @@ class GenelecNetworkTrafficSensor(GenelecBaseSensor):
     _attr_entity_registry_enabled_default = True
 
     _attr_native_unit_of_measurement = "kbps"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "network_traffic"
     _attr_icon = "mdi:network"
 
@@ -273,6 +280,7 @@ class GenelecBassLevelSensor(GenelecBaseSensor):
     _attr_entity_registry_enabled_default = True
 
     _attr_native_unit_of_measurement = "dB"
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "bass_level"
     _attr_icon = "mdi:waveform"
 
@@ -297,6 +305,7 @@ class GenelecTweeterLevelSensor(GenelecBaseSensor):
     _attr_entity_registry_enabled_default = True
 
     _attr_native_unit_of_measurement = "dB"
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "tweeter_level"
     _attr_icon = "mdi:waveform"
 
@@ -321,6 +330,7 @@ class GenelecInputLevelSensor(GenelecBaseSensor):
     _attr_entity_registry_enabled_default = True
 
     _attr_native_unit_of_measurement = "dB"
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "input_level"
     _attr_icon = "mdi:audio-input"
 
@@ -344,6 +354,7 @@ class GenelecFWSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "firmware_version"
     _attr_icon = "mdi:chip"
 
@@ -370,6 +381,7 @@ class GenelecModelSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "model"
     _attr_icon = "mdi:speaker"
 
@@ -394,6 +406,7 @@ class GenelecMACSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "mac_address"
     _attr_icon = "mdi:lan"
 
@@ -420,6 +433,7 @@ class GenelecBarcodeSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "barcode"
     _attr_icon = "mdi:barcode"
 
@@ -446,6 +460,7 @@ class GenelecHWIDSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "hardware_id"
     _attr_icon = "mdi:identifier"
 
@@ -457,9 +472,9 @@ class GenelecHWIDSensor(GenelecBaseSensor):
                  device_info: dict[str, Any], coordinator: DataUpdateCoordinator | None = None, device_id: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Hardware ID is in device_id, show N/A if empty
+        # Hardware ID is in device_id
         hw_id = device_id.get(ATTR_HW_ID) if device_id else None
-        self._attr_native_value = hw_id if hw_id else "N/A"
+        self._attr_native_value = hw_id if hw_id else None
         _LOGGER.debug("Hardware ID sensor value: %s", self._attr_native_value)
 
     def _handle_coordinator_update(self) -> None:
@@ -473,6 +488,7 @@ class GenelecHostIPSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "host_ip"
     _attr_icon = "mdi:server-network"
 
@@ -501,7 +517,7 @@ class GenelecReceiverIPSensor(GenelecBaseSensor):
     """Sensor for AoIP receiver IP (audio stream IP)."""
 
     _attr_entity_registry_enabled_default = True
-    _attr_entity_category = None
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "receiver_ip"
     _attr_icon = "mdi:ethernet"
 
@@ -519,12 +535,12 @@ class GenelecReceiverIPSensor(GenelecBaseSensor):
                  initial_data: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Initialize with initial data if available, otherwise N/A
+        # Initialize with initial data if available
         if initial_data and "ip" in initial_data:
             self._attr_native_value = initial_data.get("ip")
             _LOGGER.debug("Receiver IP sensor initialized with: %s", self._attr_native_value)
         else:
-            self._attr_native_value = "N/A"
+            self._attr_native_value = None
 
     def _handle_coordinator_update(self) -> None:
         """Update from coordinator data."""
@@ -535,7 +551,7 @@ class GenelecReceiverIPSensor(GenelecBaseSensor):
             if aoip_ipv4 and "ip" in aoip_ipv4:
                 self._attr_native_value = aoip_ipv4.get("ip")
             else:
-                self._attr_native_value = "N/A"
+                self._attr_native_value = None
             self.async_write_ha_state()
 
 
@@ -543,7 +559,7 @@ class GenelecDanteNameSensor(GenelecBaseSensor):
     """Sensor for Dante name."""
 
     _attr_entity_registry_enabled_default = True
-    _attr_entity_category = None
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "dante_name"
     _attr_icon = "mdi:headphones-audio"
 
@@ -561,12 +577,12 @@ class GenelecDanteNameSensor(GenelecBaseSensor):
                  initial_data: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Initialize with initial data if available, otherwise N/A
+        # Initialize with initial data if available
         if initial_data and "name" in initial_data:
             self._attr_native_value = initial_data.get("name")
             _LOGGER.debug("Dante name sensor initialized with: %s", self._attr_native_value)
         else:
-            self._attr_native_value = "N/A"
+            self._attr_native_value = None
 
     def _handle_coordinator_update(self) -> None:
         """Update from coordinator data."""
@@ -579,7 +595,7 @@ class GenelecDanteNameSensor(GenelecBaseSensor):
                 self._attr_native_value = dante_name
                 _LOGGER.debug("Dante name sensor value: %s", dante_name)
             else:
-                self._attr_native_value = "N/A"
+                self._attr_native_value = None
             self.async_write_ha_state()
 
 
@@ -587,7 +603,7 @@ class GenelecDanteFriendlyNameSensor(GenelecBaseSensor):
     """Sensor for Dante friendly name."""
 
     _attr_entity_registry_enabled_default = True
-    _attr_entity_category = None
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "dante_friendly_name"
     _attr_icon = "mdi:tag"
 
@@ -605,12 +621,12 @@ class GenelecDanteFriendlyNameSensor(GenelecBaseSensor):
                  initial_data: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Initialize with initial data if available, otherwise N/A
+        # Initialize with initial data if available
         if initial_data and "fname" in initial_data:
             self._attr_native_value = initial_data.get("fname")
             _LOGGER.debug("Dante friendly name sensor initialized with: %s", self._attr_native_value)
         else:
-            self._attr_native_value = "N/A"
+            self._attr_native_value = None
 
     def _handle_coordinator_update(self) -> None:
         """Update from coordinator data."""
@@ -624,7 +640,7 @@ class GenelecDanteFriendlyNameSensor(GenelecBaseSensor):
                 self._attr_native_value = dante_fname
                 _LOGGER.debug("Dante friendly name sensor value: %s", dante_fname)
             else:
-                self._attr_native_value = "N/A"
+                self._attr_native_value = None
             self.async_write_ha_state()
 
 
@@ -634,6 +650,7 @@ class GenelecHostnameSensor(GenelecBaseSensor):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "hostname"
     _attr_icon = "mdi:lan"
 
@@ -695,9 +712,9 @@ class GenelecZoneNameSensor(GenelecBaseSensor):
                  initial_data: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Initialize with initial data if available, show N/A if not configured
+        # Initialize with initial data if available
         zone_name = initial_data.get("name", "") if initial_data else ""
-        self._attr_native_value = zone_name if zone_name else "N/A"
+        self._attr_native_value = zone_name if zone_name else None
         _LOGGER.debug("Zone name sensor initialized with: %s", self._attr_native_value)
 
     def _handle_coordinator_update(self) -> None:
@@ -706,7 +723,7 @@ class GenelecZoneNameSensor(GenelecBaseSensor):
             zone_info = self._coordinator.data.get(SENSOR_KEYS_ZONE, {})
             _LOGGER.debug("Zone info data for zone name: %s", zone_info)
             zone_name = zone_info.get("name", "") if zone_info else ""
-            self._attr_native_value = zone_name if zone_name else "N/A"
+            self._attr_native_value = zone_name if zone_name else None
             self.async_write_ha_state()
 
 
@@ -732,9 +749,9 @@ class GenelecZoneIDSensor(GenelecBaseSensor):
                  initial_data: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Initialize with initial data if available, show N/A if zone is 0 (not configured)
+        # Initialize with initial data if available, None if zone is 0 (not configured)
         zone_id = initial_data.get("zone") if initial_data else None
-        self._attr_native_value = zone_id if zone_id else "N/A"
+        self._attr_native_value = zone_id if zone_id else None
         _LOGGER.debug("Zone ID sensor initialized with: %s", self._attr_native_value)
 
     def _handle_coordinator_update(self) -> None:
@@ -743,9 +760,24 @@ class GenelecZoneIDSensor(GenelecBaseSensor):
             zone_info = self._coordinator.data.get(SENSOR_KEYS_ZONE, {})
             _LOGGER.debug("Zone info data: %s", zone_info)
             zone_id = zone_info.get("zone") if zone_info else None
-            self._attr_native_value = zone_id if zone_id else "N/A"
+            self._attr_native_value = zone_id if zone_id else None
             _LOGGER.debug("Zone ID sensor value: %s", self._attr_native_value)
             self.async_write_ha_state()
+
+
+def _profile_name_from_payload(profile_payload: dict[str, Any], profile_id: int | None) -> str | None:
+    """Resolve a human-readable profile name from profile payload."""
+    if profile_id is None:
+        return None
+
+    fallback = "Default" if profile_id == 0 else f"Profile {profile_id}"
+    for item in profile_payload.get("list", []):
+        item_id = item.get("id")
+        if item_id == profile_id:
+            name = item.get("name")
+            if isinstance(name, str) and name:
+                return name
+    return fallback
 
 
 class GenelecCurrentProfileSensor(GenelecBaseSensor):
@@ -771,12 +803,15 @@ class GenelecCurrentProfileSensor(GenelecBaseSensor):
                  initial_data: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Initialize with initial data if available
+        self._profile_id: int | None = None
         if initial_data and "selected" in initial_data:
-            self._attr_native_value = initial_data.get("selected")
-            _LOGGER.debug("Current profile sensor initialized with: %s", self._attr_native_value)
-        else:
-            self._attr_native_value = None
+            self._profile_id = initial_data.get("selected")
+        self._attr_native_value = _profile_name_from_payload(initial_data or {}, self._profile_id)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes."""
+        return {"profile_id": self._profile_id}
 
     def _handle_coordinator_update(self) -> None:
         """Update from coordinator data."""
@@ -785,10 +820,11 @@ class GenelecCurrentProfileSensor(GenelecBaseSensor):
             _LOGGER.debug("Profile list data for current profile: %s", profile_list)
             # Only set value if data is available
             if profile_list and "selected" in profile_list:
-                current_profile = profile_list.get("selected")
-                self._attr_native_value = current_profile
-                _LOGGER.debug("Current profile sensor value: %s", current_profile)
+                self._profile_id = profile_list.get("selected")
+                self._attr_native_value = _profile_name_from_payload(profile_list, self._profile_id)
+                _LOGGER.debug("Current profile sensor value: %s", self._attr_native_value)
             else:
+                self._profile_id = None
                 self._attr_native_value = None
             self.async_write_ha_state()
 
@@ -816,12 +852,15 @@ class GenelecStartupProfileSensor(GenelecBaseSensor):
                  initial_data: dict[str, Any] | None = None) -> None:
         """Initialize the sensor."""
         super().__init__(device, device_info, coordinator)
-        # Initialize with initial data if available
+        self._profile_id: int | None = None
         if initial_data and "startup" in initial_data:
-            self._attr_native_value = initial_data.get("startup")
-            _LOGGER.debug("Startup profile sensor initialized with: %s", self._attr_native_value)
-        else:
-            self._attr_native_value = None
+            self._profile_id = initial_data.get("startup")
+        self._attr_native_value = _profile_name_from_payload(initial_data or {}, self._profile_id)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes."""
+        return {"profile_id": self._profile_id}
 
     def _handle_coordinator_update(self) -> None:
         """Update from coordinator data."""
@@ -830,9 +869,10 @@ class GenelecStartupProfileSensor(GenelecBaseSensor):
             _LOGGER.debug("Profile list data for startup profile: %s", profile_list)
             # Only set value if data is available
             if profile_list and "startup" in profile_list:
-                startup_profile = profile_list.get("startup")
-                self._attr_native_value = startup_profile
-                _LOGGER.debug("Startup profile sensor value: %s", startup_profile)
+                self._profile_id = profile_list.get("startup")
+                self._attr_native_value = _profile_name_from_payload(profile_list, self._profile_id)
+                _LOGGER.debug("Startup profile sensor value: %s", self._attr_native_value)
             else:
+                self._profile_id = None
                 self._attr_native_value = None
             self.async_write_ha_state()

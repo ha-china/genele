@@ -49,6 +49,8 @@ from .const import (
     ENDPOINT_PROFILE_LIST,
     ENDPOINT_PROFILE_RESTORE,
     LOGGER,
+    MAX_VOLUME_DB,
+    MIN_VOLUME_DB,
     POWER_STATE_ACTIVE,
     POWER_STATE_AOIPBOOT,
     POWER_STATE_BOOT,
@@ -85,6 +87,8 @@ class GenelecSmartIPDevice:
         self._auth_header = self._create_auth_header()
         self._device_info: dict[str, Any] = {}
         self._device_id: dict[str, Any] = {}
+        self._last_request_at = 0.0
+        self._min_request_interval = 0.35
 
     def _create_auth_header(self) -> str:
         """Create Basic Auth header."""
@@ -100,6 +104,7 @@ class GenelecSmartIPDevice:
         headers = {
             "Accept": "application/json",
             "Authorization": self._auth_header,
+            "Connection": "close",
         }
 
         if data is not None:
@@ -110,39 +115,54 @@ class GenelecSmartIPDevice:
 
         # Use lock to ensure only one request at a time
         async with self._lock:
+            now = asyncio.get_running_loop().time()
+            delta = now - self._last_request_at
+            if delta < self._min_request_interval:
+                await asyncio.sleep(self._min_request_interval - delta)
+
             # Must use shared session - never create temporary sessions
             if self._session is None:
                 raise RuntimeError("Shared session not initialized")
             
             session = self._session
             
-            async with session.request(
-                method, url, json=data, headers=headers, timeout=aiohttp.ClientTimeout(
-                    total=10)
-            ) as response:
-                if response.status == 503:
-                    _LOGGER.warning("Device busy (503): %s", url)
-                    raise ClientResponseError(
-                        response.request_info,
-                        response.history,
-                        status=503,
-                        message="Device busy - too many connections",
-                    )
-                
-                if response.status != 200:
-                    error_text = await response.text()
-                    _LOGGER.error("Request failed %d: %s",
-                                  response.status, error_text)
-                    raise ClientResponseError(
-                        response.request_info,
-                        response.history,
-                        status=response.status,
-                        message=error_text,
-                    )
-                text = await response.text()
-                if not text:
-                    return {}
-                return json.loads(text)
+            for attempt in range(3):
+                async with session.request(
+                    method,
+                    url,
+                    json=data,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as response:
+                    self._last_request_at = asyncio.get_running_loop().time()
+                    if response.status == 503:
+                        if attempt < 2:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+
+                        _LOGGER.warning("Device busy (503): %s", url)
+                        raise ClientResponseError(
+                            response.request_info,
+                            response.history,
+                            status=503,
+                            message="Device busy - too many connections",
+                        )
+
+                    if response.status != 200:
+                        error_text = await response.text()
+                        _LOGGER.error("Request failed %d: %s", response.status, error_text)
+                        raise ClientResponseError(
+                            response.request_info,
+                            response.history,
+                            status=response.status,
+                            message=error_text,
+                        )
+                    text = await response.text()
+                    if not text:
+                        return {}
+                    return json.loads(text)
+
+            raise RuntimeError("Request retry loop exhausted")
 
     async def get_device_info(self) -> dict[str, Any]:
         """Get device information."""
@@ -186,7 +206,8 @@ class GenelecSmartIPDevice:
         # Don't get current volume first to reduce requests - send only what's needed
         data: dict[str, Any] = {}
         if level is not None:
-            data["level"] = level
+            clamped_level = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, float(level)))
+            data["level"] = round(clamped_level, 1)
         if mute is not None:
             data["mute"] = mute
 
@@ -216,7 +237,7 @@ class GenelecSmartIPDevice:
         """Set LED settings."""
         data: dict[str, Any] = {}
         if led_intensity is not None:
-            data["ledIntensity"] = led_intensity
+            data["ledIntensity"] = max(0, min(100, int(led_intensity)))
         if rj45_leds is not None:
             data["rj45Leds"] = rj45_leds
         if hide_clip is not None:
@@ -242,8 +263,11 @@ class GenelecSmartIPDevice:
     async def restore_profile(self, profile_id: int,
                               startup: bool = False) -> dict[str, Any]:
         """Restore a profile."""
+        profile_id = int(profile_id)
+        if profile_id < 0 or profile_id > 5:
+            raise ValueError("profile_id must be in range 0..5")
         return await self._request(
-            "PUT", ENDPOINT_PROFILE_RESTORE, {"id": profile_id, "startup": startup}
+            "PUT", ENDPOINT_PROFILE_RESTORE, {"id": profile_id, "startup": bool(startup)}
         )
 
     async def get_network_config(self) -> dict[str, Any]:

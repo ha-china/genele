@@ -23,10 +23,27 @@ from .const import (
     POWER_STATE_ISS_SLEEP,
     POWER_STATE_PWR_FAIL,
     POWER_STATE_STANDBY,
+    SENSOR_KEYS_PROFILE,
 )
 from .device import GenelecSmartIPDevice
 
 _LOGGER = logging.getLogger(__name__)
+
+POWER_STATE_API_TO_OPTION = {
+    POWER_STATE_ACTIVE: "active",
+    POWER_STATE_STANDBY: "standby",
+    POWER_STATE_BOOT: "boot",
+    POWER_STATE_AOIPBOOT: "aoipboot",
+    POWER_STATE_ISS_SLEEP: "iss_sleep",
+    POWER_STATE_PWR_FAIL: "pwr_fail",
+}
+POWER_STATE_OPTION_TO_API = {option: api for api, option in POWER_STATE_API_TO_OPTION.items()}
+SETTABLE_POWER_STATES = {
+    POWER_STATE_ACTIVE,
+    POWER_STATE_STANDBY,
+    POWER_STATE_BOOT,
+    POWER_STATE_AOIPBOOT,
+}
 
 
 async def async_setup_entry(
@@ -50,6 +67,7 @@ async def async_setup_entry(
 
     entities = [
         GenelecPowerStateSelect(device, device_info, coordinator),
+        GenelecProfileSelect(device, device_info, coordinator),
     ]
 
     async_add_entities(entities)
@@ -61,12 +79,7 @@ class GenelecPowerStateSelect(CoordinatorEntity, SelectEntity):
     # Entity is enabled by default
     _attr_entity_registry_enabled_default = True
 
-    _attr_options = [
-        POWER_STATE_ACTIVE,
-        POWER_STATE_STANDBY,
-        POWER_STATE_BOOT,
-        POWER_STATE_AOIPBOOT,
-    ]
+    _attr_options = list(POWER_STATE_OPTION_TO_API.keys())
     _attr_translation_key = "power_state"
     _attr_icon = "mdi:power"
 
@@ -87,7 +100,7 @@ class GenelecPowerStateSelect(CoordinatorEntity, SelectEntity):
             "sw_version": device_info.get("fwId", "Unknown"),
         }
         self._attr_has_entity_name = True
-        self._current_option: str | None = POWER_STATE_ACTIVE
+        self._current_option: str | None = POWER_STATE_API_TO_OPTION[POWER_STATE_ACTIVE]
 
         # Initialize from coordinator data if available
         if coordinator and coordinator.data:
@@ -97,8 +110,7 @@ class GenelecPowerStateSelect(CoordinatorEntity, SelectEntity):
         """Initialize from coordinator data."""
         power_data = data.get("power", {})
         state = power_data.get("state", POWER_STATE_ACTIVE)
-        if state in self._attr_options:
-            self._current_option = state
+        self._current_option = POWER_STATE_API_TO_OPTION.get(state)
 
     @property
     def should_poll(self) -> bool:
@@ -110,12 +122,18 @@ class GenelecPowerStateSelect(CoordinatorEntity, SelectEntity):
         if self._coordinator and self._coordinator.data:
             power_data = self._coordinator.data.get("power", {})
             state = power_data.get("state", POWER_STATE_ACTIVE)
-
-            if state in self._attr_options:
-                self._current_option = state
-            else:
-                self._current_option = None
+            self._current_option = POWER_STATE_API_TO_OPTION.get(state)
             self.async_write_ha_state()
+
+    def _push_power_patch(self, state: str) -> None:
+        """Patch coordinator power state locally."""
+        if not self._coordinator or not self._coordinator.data:
+            return
+        updated = dict(self._coordinator.data)
+        power = dict(updated.get("power", {}))
+        power["state"] = state
+        updated["power"] = power
+        self._coordinator.async_set_updated_data(updated)
 
     async def async_update(self) -> None:
         """Update the select entity (fallback when no coordinator)."""
@@ -124,23 +142,146 @@ class GenelecPowerStateSelect(CoordinatorEntity, SelectEntity):
         try:
             power_data = await self._device.get_power_state()
             state = power_data.get("state", POWER_STATE_ACTIVE)
-
-            if state in self._attr_options:
-                self._current_option = state
-            else:
-                self._current_option = None
+            self._current_option = POWER_STATE_API_TO_OPTION.get(state)
         except Exception as e:
             _LOGGER.error("Error updating power state: %s", e)
             self._current_option = None
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        await self._device.set_power_state(option)
+        api_state = POWER_STATE_OPTION_TO_API.get(option)
+        if api_state is None:
+            _LOGGER.warning("Unknown power state option selected: %s", option)
+            return
+        if api_state not in SETTABLE_POWER_STATES:
+            _LOGGER.warning("Power state '%s' is read-only", option)
+            return
+
+        await self._device.set_power_state(api_state)
         self._current_option = option
+        self._push_power_patch(api_state)
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the selected option."""
+        return self._current_option
+
+
+def _build_profile_options(profile_data: dict[str, Any]) -> tuple[list[str], dict[str, int], dict[int, str]]:
+    """Build profile option labels and maps from API payload."""
+    profiles: dict[int, str] = {0: "Default"}
+
+    for item in profile_data.get("list", []):
+        pid = item.get("id")
+        name = item.get("name")
+        if isinstance(pid, int) and 0 <= pid <= 5 and isinstance(name, str) and name:
+            profiles[pid] = name
+
+    for key in ("selected", "startup"):
+        pid = profile_data.get(key)
+        if isinstance(pid, int) and 0 <= pid <= 5 and pid not in profiles:
+            profiles[pid] = "Default" if pid == 0 else f"Profile {pid}"
+
+    ordered = sorted(profiles.items(), key=lambda item: item[0])
+    options = [f"{name} ({pid})" for pid, name in ordered]
+    option_to_id = {f"{name} ({pid})": pid for pid, name in ordered}
+    id_to_option = {pid: f"{name} ({pid})" for pid, name in ordered}
+    return options, option_to_id, id_to_option
+
+
+class GenelecProfileSelect(CoordinatorEntity, SelectEntity):
+    """Select entity for active profile by profile name."""
+
+    _attr_entity_registry_enabled_default = True
+    _attr_translation_key = "profile"
+    _attr_icon = "mdi:playlist-play"
+
+    def __init__(
+        self,
+        device: GenelecSmartIPDevice,
+        device_info: dict[str, Any],
+        coordinator: DataUpdateCoordinator | None = None,
+    ) -> None:
+        """Initialize profile select entity."""
+        super().__init__(coordinator)
+        self._device = device
+        self._coordinator = coordinator
+        self._attr_name = "Profile"
+        self._attr_unique_id = f"{device.unique_id}_profile"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, device.unique_id)},
+            "name": device.name,
+            "manufacturer": "Genelec",
+            "model": device_info.get("model", "Unknown"),
+            "sw_version": device_info.get("fwId", "Unknown"),
+        }
+        self._attr_has_entity_name = True
+        self._attr_options = ["Default (0)"]
+        self._option_to_id: dict[str, int] = {"Default (0)": 0}
+        self._id_to_option: dict[int, str] = {0: "Default (0)"}
+        self._current_option: str | None = "Default (0)"
+
+        if coordinator and coordinator.data:
+            self._update_from_profile_data(coordinator.data.get(SENSOR_KEYS_PROFILE, {}))
+
+    @property
+    def should_poll(self) -> bool:
+        """Return False as this entity is updated by the coordinator."""
+        return not bool(self._coordinator)
+
+    def _update_from_profile_data(self, profile_data: dict[str, Any]) -> None:
+        """Refresh options and current option from profile payload."""
+        options, option_to_id, id_to_option = _build_profile_options(profile_data)
+        self._attr_options = options
+        self._option_to_id = option_to_id
+        self._id_to_option = id_to_option
+
+        selected_id = profile_data.get("selected")
+        if isinstance(selected_id, int) and selected_id in self._id_to_option:
+            self._current_option = self._id_to_option[selected_id]
+        elif self._attr_options:
+            self._current_option = self._attr_options[0]
+        else:
+            self._current_option = None
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        if self._coordinator and self._coordinator.data:
+            self._update_from_profile_data(self._coordinator.data.get(SENSOR_KEYS_PROFILE, {}))
+            self.async_write_ha_state()
+
+    def _push_profile_patch(self, profile_id: int) -> None:
+        """Patch coordinator profile selection locally."""
+        if not self._coordinator or not self._coordinator.data:
+            return
+        updated = dict(self._coordinator.data)
+        profile = dict(updated.get(SENSOR_KEYS_PROFILE, {}))
+        profile["selected"] = profile_id
+        updated[SENSOR_KEYS_PROFILE] = profile
+        self._coordinator.async_set_updated_data(updated)
+
+    async def async_update(self) -> None:
+        """Update the select entity (fallback when no coordinator)."""
         if self._coordinator:
-            await self._coordinator.async_request_refresh()
+            return
+        try:
+            profile_data = await self._device.get_profile_list()
+            self._update_from_profile_data(profile_data)
+        except Exception as e:
+            _LOGGER.error("Error updating profile select: %s", e)
+
+    async def async_select_option(self, option: str) -> None:
+        """Change active profile by selecting its profile name."""
+        profile_id = self._option_to_id.get(option)
+        if profile_id is None:
+            _LOGGER.warning("Unknown profile option selected: %s", option)
+            return
+
+        await self._device.restore_profile(profile_id, startup=False)
+        self._current_option = option
+        self._push_profile_patch(profile_id)
+        self.async_write_ha_state()
 
     @property
     def current_option(self) -> str | None:

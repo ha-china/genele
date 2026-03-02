@@ -15,6 +15,9 @@ DEFAULT_USERNAME = "admin"
 DEFAULT_PASSWORD = "admin"
 DEFAULT_API_VERSION = "v1"
 
+MIN_VOLUME_DB = -200.0
+MAX_VOLUME_DB = 0.0
+
 CONF_API_VERSION = "api_version"
 
 # Platforms

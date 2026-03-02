@@ -98,6 +98,16 @@ class GenelecRJ45LedsSwitch(CoordinatorEntity, SwitchEntity):
                 self._rj45_enabled = led_data.get("rj45Leds", True)
             self.async_write_ha_state()
 
+    def _push_led_patch(self, patch: dict[str, Any]) -> None:
+        """Patch coordinator LED data locally."""
+        if not self._coordinator or not self._coordinator.data:
+            return
+        updated = dict(self._coordinator.data)
+        led = dict(updated.get("led", {}))
+        led.update(patch)
+        updated["led"] = led
+        self._coordinator.async_set_updated_data(updated)
+
     async def async_update(self) -> None:
         """Update the switch entity (fallback when no coordinator)."""
         if self._coordinator:
@@ -107,27 +117,17 @@ class GenelecRJ45LedsSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self) -> None:
         """Turn the switch on (enable RJ45 LEDs)."""
-        try:
-            await self._device.set_led_settings(rj45_leds=True)
-            self._rj45_enabled = True
-        except Exception as e:
-            _LOGGER.error("Error enabling RJ45 LEDs: %s", e)
+        await self._device.set_led_settings(rj45_leds=True)
+        self._rj45_enabled = True
+        self._push_led_patch({"rj45Leds": True})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_turn_off(self) -> None:
         """Turn the switch off (disable RJ45 LEDs)."""
-        try:
-            await self._device.set_led_settings(rj45_leds=False)
-            self._rj45_enabled = False
-        except Exception as e:
-            _LOGGER.error("Error disabling RJ45 LEDs: %s", e)
+        await self._device.set_led_settings(rj45_leds=False)
+        self._rj45_enabled = False
+        self._push_led_patch({"rj45Leds": False})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     @property
     def is_on(self) -> bool:
@@ -189,6 +189,16 @@ class GenelecClipLedSwitch(CoordinatorEntity, SwitchEntity):
                 self._clip_enabled = not led_data.get("hideClip", True)
             self.async_write_ha_state()
 
+    def _push_led_patch(self, patch: dict[str, Any]) -> None:
+        """Patch coordinator LED data locally."""
+        if not self._coordinator or not self._coordinator.data:
+            return
+        updated = dict(self._coordinator.data)
+        led = dict(updated.get("led", {}))
+        led.update(patch)
+        updated["led"] = led
+        self._coordinator.async_set_updated_data(updated)
+
     async def async_update(self) -> None:
         """Update the switch entity (fallback when no coordinator)."""
         if self._coordinator:
@@ -198,27 +208,17 @@ class GenelecClipLedSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self) -> None:
         """Turn the switch on (enable clip LED)."""
-        try:
-            await self._device.set_led_settings(hide_clip=False)
-            self._clip_enabled = True
-        except Exception as e:
-            _LOGGER.error("Error enabling clip LED: %s", e)
+        await self._device.set_led_settings(hide_clip=False)
+        self._clip_enabled = True
+        self._push_led_patch({"hideClip": False})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_turn_off(self) -> None:
         """Turn the switch off (disable clip LED)."""
-        try:
-            await self._device.set_led_settings(hide_clip=True)
-            self._clip_enabled = False
-        except Exception as e:
-            _LOGGER.error("Error disabling clip LED: %s", e)
+        await self._device.set_led_settings(hide_clip=True)
+        self._clip_enabled = False
+        self._push_led_patch({"hideClip": True})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     @property
     def is_on(self) -> bool:

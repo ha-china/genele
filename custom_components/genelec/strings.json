@@ -62,6 +62,9 @@
       "startup_profile": {"name": "Startup Profile"}
     },
     "select": {
+      "profile": {
+        "name": "Profile"
+      },
       "power_state": {
         "name": "Power State",
         "state": {
@@ -107,7 +110,7 @@
       "fields": {
         "level": {
           "name": "Level",
-          "description": "Volume level in dB (-130 to 0)."
+          "description": "Volume level in dB (-200 to 0)."
         }
       }
     },

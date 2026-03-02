@@ -27,6 +27,8 @@ from .const import (
     INPUT_MIX,
     INPUT_NONE,
     LOGGER,
+    MAX_VOLUME_DB,
+    MIN_VOLUME_DB,
     POWER_STATE_ACTIVE,
     POWER_STATE_STANDBY,
 )
@@ -141,6 +143,21 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             return INPUT_MIX
         return INPUT_API_TO_DISPLAY.get(api_sources[0], api_sources[0])
 
+    def _push_coordinator_patch(self, patch: dict[str, Any]) -> None:
+        """Patch coordinator data locally to avoid extra API refresh calls."""
+        if not self._coordinator or not self._coordinator.data:
+            return
+
+        updated = dict(self._coordinator.data)
+        for key, value in patch.items():
+            if isinstance(value, dict):
+                merged = dict(updated.get(key, {}))
+                merged.update(value)
+                updated[key] = merged
+            else:
+                updated[key] = value
+        self._coordinator.async_set_updated_data(updated)
+
     async def async_update(self) -> None:
         """Update the media player state."""
         if self._coordinator:
@@ -199,7 +216,10 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
     @property
     def volume_level(self) -> float:
         """Volume level of the media player (0..1)."""
-        return (self._volume + 130) / 130
+        span = MAX_VOLUME_DB - MIN_VOLUME_DB
+        if span <= 0:
+            return 0.0
+        return max(0.0, min(1.0, (self._volume - MIN_VOLUME_DB) / span))
 
     @property
     def is_volume_muted(self) -> bool:
@@ -222,64 +242,50 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         await self._device.set_inputs(api_sources)
         self._current_sources = api_sources
         self._current_source = source
+        self._push_coordinator_patch({"inputs": {"input": api_sources}})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute media player."""
         await self._device.set_volume(mute=mute)
         self._is_muted = mute
+        self._push_coordinator_patch({"volume": {"mute": mute}})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
-        level = (volume * 130) - 130
+        level = MIN_VOLUME_DB + (max(0.0, min(1.0, volume)) * (MAX_VOLUME_DB - MIN_VOLUME_DB))
         await self._device.set_volume(level=level)
         self._volume = level
+        self._push_coordinator_patch({"volume": {"level": level}})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_volume_up(self) -> None:
         """Volume up the media player."""
         new_level = min(0, self._volume + 1.0)
         await self._device.set_volume(level=new_level)
         self._volume = new_level
+        self._push_coordinator_patch({"volume": {"level": new_level}})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_volume_down(self) -> None:
         """Volume down the media player."""
-        new_level = max(-130, self._volume - 1.0)
+        new_level = max(MIN_VOLUME_DB, self._volume - 1.0)
         await self._device.set_volume(level=new_level)
         self._volume = new_level
+        self._push_coordinator_patch({"volume": {"level": new_level}})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_turn_on(self) -> None:
         """Turn the media player on."""
         await self._device.wake_up()
         self._power_state = POWER_STATE_ACTIVE
+        self._push_coordinator_patch({"power": {"state": POWER_STATE_ACTIVE}})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()
 
     async def async_turn_off(self) -> None:
         """Turn the media player off."""
         await self._device.set_standby()
         self._power_state = POWER_STATE_STANDBY
+        self._push_coordinator_patch({"power": {"state": POWER_STATE_STANDBY}})
         self.async_write_ha_state()
-        # Immediately refresh coordinator data after control
-        if self._coordinator:
-            await self._coordinator.async_request_refresh()

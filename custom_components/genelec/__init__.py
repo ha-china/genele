@@ -17,6 +17,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
@@ -27,6 +28,8 @@ from .const import (
     DEFAULT_USERNAME,
     DOMAIN,
     LOGGER,
+    MAX_VOLUME_DB,
+    MIN_VOLUME_DB,
     PLATFORMS,
 )
 from .diagnostics import (
@@ -81,6 +84,7 @@ class GenelecSmartIPData:
         self.zone_info: dict = {}
         self.profile_list: dict = {}
         self.lock = asyncio.Lock()  # Lock to ensure only one request at a time
+        self.poll_tick: int = 0
 
 
 type GenelecSmartIPConfigEntry = ConfigEntry[GenelecSmartIPData]
@@ -89,6 +93,7 @@ type GenelecSmartIPConfigEntry = ConfigEntry[GenelecSmartIPData]
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Genelec Smart IP component."""
     hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].setdefault("_services_registered", False)
     LOGGER.info("Genelec Smart IP component loaded")
     return True
 
@@ -106,9 +111,9 @@ async def async_setup_entry(hass: HomeAssistant,
     connector = aiohttp.TCPConnector(
         limit=1,
         limit_per_host=1,
-        force_close=False,  # Keep connections alive for reuse
+        force_close=True,
         enable_cleanup_closed=True,
-        ttl_dns_cache=300,  # Cache DNS for 5 minutes
+        ttl_dns_cache=300,
     )
     timeout = aiohttp.ClientTimeout(total=10)
     session = aiohttp.ClientSession(connector=connector, timeout=timeout)
@@ -145,11 +150,16 @@ async def async_setup_entry(hass: HomeAssistant,
     async def async_update_data():
         """Fetch data from device."""
         try:
+            data.poll_tick += 1
             # Fetch all data in sequence to avoid overwhelming the device
             volume_data = await device.get_volume()
             power_data = await device.get_power_state()
             inputs_data = await device.get_inputs()
-            events_data = await device.get_events()
+            if data.poll_tick % 3 == 0 or not data.events_data:
+                events_data = await device.get_events()
+                data.events_data = events_data
+            else:
+                events_data = data.events_data
 
             # Update cached data
             data.volume_data = volume_data
@@ -237,6 +247,26 @@ async def async_setup_entry(hass: HomeAssistant,
                 "zone_info": data.zone_info,
                 "profile_list": data.profile_list,
             }
+        except aiohttp.ClientResponseError as e:
+            if e.status == 503:
+                LOGGER.warning("Device busy (503) while polling %s:%s. Possible extra clients or stale keepalive sessions.", entry.data.get(CONF_HOST), entry.data.get(CONF_PORT, DEFAULT_PORT))
+            else:
+                LOGGER.error("Error updating coordinator data: %s", e)
+            # Return last known data if available
+            return {
+                "volume": data.volume_data,
+                "power": data.power_data,
+                "inputs": data.inputs_data,
+                "events": data.events_data,
+                "device_info": data.device_info,
+                "device_id": data.device_id,
+                "led": data.led_data,
+                "network_ipv4": data.network_config,
+                "aoip_ipv4": data.aoip_ipv4,
+                "aoip_identity": data.aoip_identity,
+                "zone_info": data.zone_info,
+                "profile_list": data.profile_list,
+            }
         except Exception as e:
             LOGGER.error("Error updating coordinator data: %s", e)
             # Return last known data if available
@@ -260,7 +290,7 @@ async def async_setup_entry(hass: HomeAssistant,
         LOGGER,
         name=DOMAIN,
         update_method=async_update_data,
-        update_interval=timedelta(seconds=30),
+        update_interval=timedelta(seconds=60),
     )
 
     data.coordinator = coordinator
@@ -301,13 +331,29 @@ async def async_setup_entry(hass: HomeAssistant,
             )
             await service_call
 
+    async def _get_target_entry_ids(entity_ids: list[str]) -> set[str]:
+        """Resolve config entry IDs from entity IDs."""
+        if not entity_ids:
+            return {entry.entry_id}
+
+        ent_reg = er.async_get(hass)
+        resolved: set[str] = set()
+        for entity_id in entity_ids:
+            if reg_entry := ent_reg.async_get(entity_id):
+                if reg_entry.config_entry_id:
+                    resolved.add(reg_entry.config_entry_id)
+
+        return resolved or {entry.entry_id}
+
     async def handle_set_volume_level(call):
         """Handle set volume level service."""
         entity_ids = call.data.get("entity_id", [])
         level = call.data.get("level")
         if level is None:
             return
-        volume_percent = (level + 130) / 130
+        level = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, float(level)))
+        span = MAX_VOLUME_DB - MIN_VOLUME_DB
+        volume_percent = 0.0 if span <= 0 else (level - MIN_VOLUME_DB) / span
         for entity_id in entity_ids:
             service_call = hass.services.async_call(
                 "media_player",
@@ -322,47 +368,56 @@ async def async_setup_entry(hass: HomeAssistant,
         intensity = call.data.get("intensity")
         if intensity is None:
             return
+        intensity = max(0, min(100, int(intensity)))
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
 
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state:
-                for platform in PLATFORMS:
-                    for entry in hass.config_entries.async_entries(DOMAIN):
-                        entities = hass.data[DOMAIN].get(
-                            entry.entry_id, {}).get(platform, [])
-                        for entity in entities:
-                            if entity.entity_id == entity_id and hasattr(
-                                    entity, '_device'):
-                                await entity._device.set_led_settings(led_intensity=intensity)
-                                break
+        for target_entry_id in target_entry_ids:
+            target_data = hass.data[DOMAIN].get(target_entry_id)
+            if not target_data or not target_data.device:
+                continue
+            await target_data.device.set_led_settings(led_intensity=intensity)
+            if target_data.coordinator and target_data.coordinator.data:
+                updated = dict(target_data.coordinator.data)
+                led = dict(updated.get("led", {}))
+                led["ledIntensity"] = intensity
+                updated["led"] = led
+                target_data.coordinator.async_set_updated_data(updated)
 
     async def handle_restore_profile(call):
         """Handle restore profile service."""
         profile_id = call.data.get("profile_id")
-        startup = call.data.get("startup", False)
         if profile_id is None:
+            return
+        startup = bool(call.data.get("startup", False))
+        profile_id = int(profile_id)
+        if profile_id < 0 or profile_id > 5:
+            LOGGER.warning("Invalid profile_id %s, must be 0..5", profile_id)
             return
 
         entity_ids = call.data.get("entity_id", [])
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state:
-                for platform in PLATFORMS:
-                    for entry in hass.config_entries.async_entries(DOMAIN):
-                        entities = hass.data[DOMAIN].get(
-                            entry.entry_id, {}).get(platform, [])
-                        for entity in entities:
-                            if entity.entity_id == entity_id and hasattr(
-                                    entity, '_device'):
-                                await entity._device.restore_profile(profile_id, startup)
-                                break
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
+        for target_entry_id in target_entry_ids:
+            target_data = hass.data[DOMAIN].get(target_entry_id)
+            if not target_data or not target_data.device:
+                continue
+            await target_data.device.restore_profile(profile_id, startup)
+            if target_data.coordinator and target_data.coordinator.data:
+                updated = dict(target_data.coordinator.data)
+                profile = dict(updated.get("profile_list", {}))
+                profile["selected"] = profile_id
+                if startup:
+                    profile["startup"] = profile_id
+                updated["profile_list"] = profile
+                target_data.coordinator.async_set_updated_data(updated)
 
-    hass.services.async_register(DOMAIN, "wake_up", handle_wake_up)
-    hass.services.async_register(DOMAIN, "set_standby", handle_set_standby)
-    hass.services.async_register(DOMAIN, "boot_device", handle_boot_device)
-    hass.services.async_register(DOMAIN, "set_volume_level", handle_set_volume_level)
-    hass.services.async_register(DOMAIN, "set_led_intensity", handle_set_led_intensity)
-    hass.services.async_register(DOMAIN, "restore_profile", handle_restore_profile)
+    if not hass.data[DOMAIN].get("_services_registered"):
+        hass.services.async_register(DOMAIN, "wake_up", handle_wake_up)
+        hass.services.async_register(DOMAIN, "set_standby", handle_set_standby)
+        hass.services.async_register(DOMAIN, "boot_device", handle_boot_device)
+        hass.services.async_register(DOMAIN, "set_volume_level", handle_set_volume_level)
+        hass.services.async_register(DOMAIN, "set_led_intensity", handle_set_led_intensity)
+        hass.services.async_register(DOMAIN, "restore_profile", handle_restore_profile)
+        hass.data[DOMAIN]["_services_registered"] = True
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -378,6 +433,19 @@ async def async_unload_entry(hass: HomeAssistant,
         data = hass.data[DOMAIN].pop(entry.entry_id, None)
         if data and hasattr(data, 'session') and data.session:
             await data.session.close()
+
+        remaining_entries = [
+            k for k in hass.data.get(DOMAIN, {})
+            if not k.startswith("_")
+        ]
+        if not remaining_entries and hass.data[DOMAIN].get("_services_registered"):
+            hass.services.async_remove(DOMAIN, "wake_up")
+            hass.services.async_remove(DOMAIN, "set_standby")
+            hass.services.async_remove(DOMAIN, "boot_device")
+            hass.services.async_remove(DOMAIN, "set_volume_level")
+            hass.services.async_remove(DOMAIN, "set_led_intensity")
+            hass.services.async_remove(DOMAIN, "restore_profile")
+            hass.data[DOMAIN]["_services_registered"] = False
 
     return True
 

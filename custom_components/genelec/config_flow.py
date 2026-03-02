@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 from typing import Any
 
@@ -106,7 +107,16 @@ class GenelecSmartIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Use addresses attribute instead of parsed_addresses
         addresses = discovery_info.addresses if hasattr(
             discovery_info, 'addresses') else []
-        host = str(addresses[0]) if addresses else None
+        host = None
+        if addresses:
+            raw_addr = addresses[0]
+            try:
+                if isinstance(raw_addr, (bytes, bytearray)):
+                    host = str(ipaddress.ip_address(raw_addr))
+                else:
+                    host = str(raw_addr)
+            except ValueError:
+                _LOGGER.warning("Failed to parse zeroconf address: %s", raw_addr)
         port = discovery_info.port
         properties = discovery_info.properties or {}
 
