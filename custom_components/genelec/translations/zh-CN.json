@@ -2,6 +2,13 @@
   "config": {
     "step": {
       "user": {
+        "title": "添加 Genelec Smart IP",
+        "menu_options": {
+          "device": "单设备控制",
+          "group": "区域组控制"
+        }
+      },
+      "device": {
         "title": "连接 Genelec Smart IP 设备",
         "description": "输入您的 Genelec Smart IP 设备详细信息。",
         "data": {
@@ -10,6 +17,14 @@
           "username": "用户名",
           "password": "密码",
           "api_version": "API 版本"
+        }
+      },
+      "group": {
+        "title": "添加区域组控制",
+        "description": "为一个区域创建独立组控制入口。",
+        "data": {
+          "zone_id": "区域 ID",
+          "zone_name": "区域名称"
         }
       },
       "confirm": {
@@ -27,7 +42,8 @@
       "discovery_failed": "发现失败。",
       "not_genelec_device": "这不是 Genelec 设备。",
       "no_ip_address": "未找到设备的 IP 地址。",
-      "no_devices_found": "未找到设备。"
+      "no_devices_found": "未找到设备。",
+      "invalid_zone": "区域 ID 或区域名称无效。"
     },
     "abort": {
       "already_configured": "该设备已配置。",

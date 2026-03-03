@@ -16,7 +16,13 @@ if TYPE_CHECKING:
     from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    CONF_ENTRY_TYPE,
+    CONF_ZONE_ID,
+    CONF_ZONE_NAME,
     DOMAIN,
+    GROUP_HUB_ID,
+    ENTRY_TYPE_DEVICE,
+    ENTRY_TYPE_GROUP,
     LOGGER,
     POWER_STATE_ACTIVE,
     POWER_STATE_AOIPBOOT,
@@ -24,6 +30,7 @@ from .const import (
     POWER_STATE_ISS_SLEEP,
     POWER_STATE_PWR_FAIL,
     POWER_STATE_STANDBY,
+    SINGLE_HUB_ID,
     SENSOR_KEYS_PROFILE,
 )
 from .device import GenelecSmartIPDevice
@@ -56,6 +63,36 @@ async def async_setup_entry(
     # Get shared data from hass.data
     data = hass.data[DOMAIN].get(entry.entry_id)
     coordinator = data.coordinator if data else None
+    entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE)
+
+    if entry_type == ENTRY_TYPE_GROUP:
+        zones: dict[int, str] = {}
+        for data_key, data_item in hass.data.get(DOMAIN, {}).items():
+            if data_key.startswith("_") or data_key == entry.entry_id:
+                continue
+            config_entry = hass.config_entries.async_get_entry(data_key)
+            if not config_entry:
+                continue
+            if config_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) != ENTRY_TYPE_DEVICE:
+                continue
+
+            zone_info = getattr(data_item, "zone_info", {}) or {}
+            if not zone_info and getattr(data_item, "coordinator", None) and data_item.coordinator.data:
+                zone_info = data_item.coordinator.data.get("zone_info", {}) or {}
+            try:
+                zone_id = int(zone_info.get("zone"))
+            except (TypeError, ValueError):
+                continue
+            if zone_id <= 0:
+                continue
+            zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
+            zones[zone_id] = zone_name
+
+        async_add_entities([
+            GenelecZoneProfileSelect(hass, zone_id, zone_name)
+            for zone_id, zone_name in sorted(zones.items())
+        ])
+        return
 
     # Use shared device instance
     device = data.device if data and data.device else None
@@ -70,21 +107,6 @@ async def async_setup_entry(
         GenelecPowerStateSelect(device, device_info, coordinator),
         GenelecProfileSelect(device, device_info, coordinator),
     ]
-
-    zone_info = data.zone_info if data else {}
-    if (not zone_info) and coordinator and coordinator.data:
-        zone_info = coordinator.data.get("zone_info", {}) or {}
-    try:
-        zone_id = int(zone_info.get("zone")) if zone_info.get("zone") is not None else None
-    except (TypeError, ValueError):
-        zone_id = None
-    if zone_id is not None and zone_id > 0:
-        zone_registry = hass.data[DOMAIN].setdefault("_zone_profile_entities", set())
-        zone_key = f"group_zone_{zone_id}"
-        if zone_key not in zone_registry:
-            zone_registry.add(zone_key)
-            zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
-            entities.append(GenelecZoneProfileSelect(hass, zone_id, zone_name))
 
     async_add_entities(entities)
 
@@ -109,11 +131,10 @@ class GenelecPowerStateSelect(CoordinatorEntity, SelectEntity):
         self._attr_name = "Power State"
         self._attr_unique_id = f"{device.unique_id}_power_state"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, device.unique_id)},
-            "name": device.name,
+            "identifiers": {(DOMAIN, SINGLE_HUB_ID)},
+            "name": device_info.get("_device_name", "Genelec Device"),
             "manufacturer": "Genelec",
-            "model": device_info.get("model", "Unknown"),
-            "sw_version": device_info.get("fwId", "Unknown"),
+            "model": "Smart IP",
         }
         self._attr_has_entity_name = True
         self._current_option: str | None = POWER_STATE_API_TO_OPTION[POWER_STATE_ACTIVE]
@@ -231,11 +252,10 @@ class GenelecProfileSelect(CoordinatorEntity, SelectEntity):
         self._attr_name = "Profile"
         self._attr_unique_id = f"{device.unique_id}_profile"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, device.unique_id)},
-            "name": device.name,
+            "identifiers": {(DOMAIN, SINGLE_HUB_ID)},
+            "name": device_info.get("_device_name", "Genelec Device"),
             "manufacturer": "Genelec",
-            "model": device_info.get("model", "Unknown"),
-            "sw_version": device_info.get("fwId", "Unknown"),
+            "model": "Smart IP",
         }
         self._attr_has_entity_name = True
         self._attr_options = ["Default (0)"]
@@ -322,11 +342,11 @@ class GenelecZoneProfileSelect(SelectEntity):
         self._zone_id = zone_id
         self._zone_name = zone_name
         self._attr_has_entity_name = True
-        self._attr_name = "Profile"
+        self._attr_name = f"{zone_name} Profile"
         self._attr_unique_id = f"genelec_group_zone_{zone_id}_profile"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"group_zone_{zone_id}")},
-            "name": f"Genelec Zone {zone_name}",
+            "identifiers": {(DOMAIN, GROUP_HUB_ID)},
+            "name": "Genelec Zone",
             "manufacturer": "Genelec",
             "model": "Zone Group",
         }

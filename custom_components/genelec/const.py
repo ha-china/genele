@@ -19,6 +19,16 @@ MIN_VOLUME_DB = -200.0
 MAX_VOLUME_DB = 0.0
 
 CONF_API_VERSION = "api_version"
+CONF_ENTRY_TYPE = "entry_type"
+CONF_ZONE_ID = "zone_id"
+CONF_ZONE_NAME = "zone_name"
+CONF_DEVICE_NAME = "device_name"
+
+ENTRY_TYPE_DEVICE = "device"
+ENTRY_TYPE_GROUP = "group"
+
+SINGLE_HUB_ID = "genelec_single_hub"
+GROUP_HUB_ID = "genelec_group_hub"
 
 # Platforms
 PLATFORMS = [

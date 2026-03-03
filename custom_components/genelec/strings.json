@@ -2,6 +2,13 @@
   "config": {
     "step": {
       "user": {
+        "title": "Add Genelec Smart IP",
+        "menu_options": {
+          "device": "Single Device Control",
+          "group": "Zone Group Control"
+        }
+      },
+      "device": {
         "title": "Connect to Genelec Smart IP",
         "description": "Enter your Genelec Smart IP device details.",
         "data": {
@@ -10,6 +17,14 @@
           "username": "Username",
           "password": "Password",
           "api_version": "API Version"
+        }
+      },
+      "group": {
+        "title": "Add Zone Group Control",
+        "description": "Create a dedicated group entry for one zone.",
+        "data": {
+          "zone_id": "Zone ID",
+          "zone_name": "Zone Name"
         }
       },
       "confirm": {
@@ -28,6 +43,7 @@
       "not_genelec_device": "This is not a Genelec device.",
       "no_ip_address": "No IP address found for the device.",
       "no_devices_found": "No devices found."
+      ,"invalid_zone": "Invalid zone ID or zone name."
     },
     "abort": {
       "already_configured": "This device has already been configured.",

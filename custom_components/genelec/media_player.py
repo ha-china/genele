@@ -21,7 +21,14 @@ if TYPE_CHECKING:
     from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    CONF_ENTRY_TYPE,
+    CONF_ZONE_ID,
+    CONF_ZONE_NAME,
     DOMAIN,
+    GROUP_HUB_ID,
+    SINGLE_HUB_ID,
+    ENTRY_TYPE_DEVICE,
+    ENTRY_TYPE_GROUP,
     INPUT_AOIP_01,
     INPUT_AOIP_02,
     INPUT_ANALOG,
@@ -49,6 +56,36 @@ async def async_setup_entry(
     # Get shared data from hass.data
     data = hass.data[DOMAIN].get(entry.entry_id)
     coordinator = data.coordinator if data else None
+    entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE)
+
+    if entry_type == ENTRY_TYPE_GROUP:
+        zones: dict[int, str] = {}
+        for data_key, data_item in hass.data.get(DOMAIN, {}).items():
+            if data_key.startswith("_") or data_key == entry.entry_id:
+                continue
+            config_entry = hass.config_entries.async_get_entry(data_key)
+            if not config_entry:
+                continue
+            if config_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) != ENTRY_TYPE_DEVICE:
+                continue
+
+            zone_info = getattr(data_item, "zone_info", {}) or {}
+            if not zone_info and getattr(data_item, "coordinator", None) and data_item.coordinator.data:
+                zone_info = data_item.coordinator.data.get("zone_info", {}) or {}
+            try:
+                zone_id = int(zone_info.get("zone"))
+            except (TypeError, ValueError):
+                continue
+            if zone_id <= 0:
+                continue
+            zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
+            zones[zone_id] = zone_name
+
+        async_add_entities([
+            GenelecZoneMediaPlayer(hass, zone_id, zone_name)
+            for zone_id, zone_name in sorted(zones.items())
+        ])
+        return
 
     # Use shared device instance
     device = data.device if data and data.device else None
@@ -59,26 +96,7 @@ async def async_setup_entry(
     # Get device info from shared data
     device_info = data.device_info if data else {}
 
-    entities: list[MediaPlayerEntity] = [
-        GenelecSmartIPMediaPlayer(device, device_info, coordinator)
-    ]
-
-    zone_info = data.zone_info if data else {}
-    if (not zone_info) and coordinator and coordinator.data:
-        zone_info = coordinator.data.get("zone_info", {}) or {}
-    try:
-        zone_id = int(zone_info.get("zone")) if zone_info.get("zone") is not None else None
-    except (TypeError, ValueError):
-        zone_id = None
-    if zone_id is not None and zone_id > 0:
-        zone_registry = hass.data[DOMAIN].setdefault("_zone_media_entities", set())
-        zone_key = f"group_zone_{zone_id}"
-        if zone_key not in zone_registry:
-            zone_registry.add(zone_key)
-            zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
-            entities.append(GenelecZoneMediaPlayer(hass, zone_id, zone_name))
-
-    async_add_entities(entities)
+    async_add_entities([GenelecSmartIPMediaPlayer(device, device_info, coordinator)])
 
 
 class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
@@ -111,11 +129,10 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         self._attr_name = "Speaker"
         self._attr_unique_id = device.unique_id
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, device.unique_id)},
-            "name": device.name,
+            "identifiers": {(DOMAIN, SINGLE_HUB_ID)},
+            "name": device_info.get("_device_name", "Genelec Device"),
             "manufacturer": "Genelec",
-            "model": device_info.get("model", "Unknown"),
-            "sw_version": device_info.get("fwId", "Unknown"),
+            "model": "Smart IP",
         }
         self._volume = -5.0
         self._is_muted = False
@@ -179,6 +196,69 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             else:
                 updated[key] = value
         self._coordinator.async_set_updated_data(updated)
+
+    async def _set_volume_with_verify(
+        self,
+        *,
+        level: float | None = None,
+        mute: bool | None = None,
+    ) -> dict[str, Any]:
+        """Set volume/mute and verify by reading back current state."""
+        if self._power_state != POWER_STATE_ACTIVE:
+            await self._device.wake_up()
+
+        await self._device.set_volume(level=level, mute=mute)
+        await asyncio.sleep(0.12)
+        current = await self._device.get_volume()
+
+        level_ok = True
+        if level is not None and isinstance(current.get("level"), (int, float)):
+            level_ok = abs(float(current["level"]) - float(level)) <= 0.2
+
+        mute_ok = True
+        if mute is not None and isinstance(current.get("mute"), bool):
+            mute_ok = bool(current["mute"]) == bool(mute)
+
+        if not (level_ok and mute_ok):
+            await self._device.set_volume(level=level, mute=mute)
+            await asyncio.sleep(0.12)
+            current = await self._device.get_volume()
+
+        if level is not None and isinstance(current.get("level"), (int, float)):
+            if abs(float(current["level"]) - float(level)) > 0.2:
+                fallback_level = max(-130.0, min(0.0, float(level)))
+                if abs(fallback_level - float(level)) > 0.05:
+                    await self._device.set_volume(level=fallback_level, mute=mute)
+                    await asyncio.sleep(0.12)
+                    current = await self._device.get_volume()
+
+        return current
+
+    async def _set_inputs_with_verify(self, api_sources: list[str]) -> list[str]:
+        """Set input sources and verify by reading back current inputs."""
+        if self._power_state != POWER_STATE_ACTIVE:
+            await self._device.wake_up()
+
+        try:
+            await self._device.set_inputs(api_sources)
+        except ClientResponseError as err:
+            if err.status == 404:
+                await self._device.wake_up()
+                await self._device.set_inputs(api_sources)
+            else:
+                raise
+
+        await asyncio.sleep(0.12)
+        inputs_data = await self._device.get_inputs()
+        current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
+
+        if list(current) != list(api_sources):
+            await self._device.set_inputs(api_sources)
+            await asyncio.sleep(0.12)
+            inputs_data = await self._device.get_inputs()
+            current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
+
+        return list(current)
 
     async def async_update(self) -> None:
         """Update the media player state."""
@@ -261,48 +341,44 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             api_source = INPUT_DISPLAY_TO_API.get(source, source)
             api_sources = [api_source]
         
-        try:
-            await self._device.set_inputs(api_sources)
-        except ClientResponseError as err:
-            if err.status == 404:
-                await self._device.wake_up()
-                await self._device.set_inputs(api_sources)
-            else:
-                raise
-        self._current_sources = api_sources
+        applied = await self._set_inputs_with_verify(api_sources)
+        self._current_sources = applied
         self._current_source = source
-        self._push_coordinator_patch({"inputs": {"input": api_sources}})
+        self._push_coordinator_patch({"inputs": {"input": applied}})
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute media player."""
-        await self._device.set_volume(mute=mute)
-        self._is_muted = mute
-        self._push_coordinator_patch({"volume": {"mute": mute}})
+        current = await self._set_volume_with_verify(mute=mute)
+        self._is_muted = bool(current.get("mute", mute))
+        self._push_coordinator_patch({"volume": {"mute": self._is_muted}})
         self.async_write_ha_state()
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
         level = MIN_VOLUME_DB + (max(0.0, min(1.0, volume)) * (MAX_VOLUME_DB - MIN_VOLUME_DB))
-        await self._device.set_volume(level=level)
-        self._volume = level
-        self._push_coordinator_patch({"volume": {"level": level}})
+        current = await self._set_volume_with_verify(level=level)
+        applied_level = float(current.get("level", level))
+        self._volume = applied_level
+        self._push_coordinator_patch({"volume": {"level": applied_level}})
         self.async_write_ha_state()
 
     async def async_volume_up(self) -> None:
         """Volume up the media player."""
         new_level = min(0, self._volume + 1.0)
-        await self._device.set_volume(level=new_level)
-        self._volume = new_level
-        self._push_coordinator_patch({"volume": {"level": new_level}})
+        current = await self._set_volume_with_verify(level=new_level)
+        applied_level = float(current.get("level", new_level))
+        self._volume = applied_level
+        self._push_coordinator_patch({"volume": {"level": applied_level}})
         self.async_write_ha_state()
 
     async def async_volume_down(self) -> None:
         """Volume down the media player."""
         new_level = max(MIN_VOLUME_DB, self._volume - 1.0)
-        await self._device.set_volume(level=new_level)
-        self._volume = new_level
-        self._push_coordinator_patch({"volume": {"level": new_level}})
+        current = await self._set_volume_with_verify(level=new_level)
+        applied_level = float(current.get("level", new_level))
+        self._volume = applied_level
+        self._push_coordinator_patch({"volume": {"level": applied_level}})
         self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:
@@ -337,11 +413,11 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
         self._zone_id = zone_id
         self._zone_name = zone_name
         self._attr_has_entity_name = True
-        self._attr_name = "Group"
+        self._attr_name = f"{zone_name} Group"
         self._attr_unique_id = f"genelec_group_zone_{zone_id}_media"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"group_zone_{zone_id}")},
-            "name": f"Genelec Zone {zone_name}",
+            "identifiers": {(DOMAIN, GROUP_HUB_ID)},
+            "name": "Genelec Zone",
             "manufacturer": "Genelec",
             "model": "Zone Group",
         }

@@ -17,12 +17,16 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    CONF_ENTRY_TYPE,
     CONF_API_VERSION,
+    CONF_DEVICE_NAME,
     DEFAULT_API_VERSION,
     DEFAULT_PASSWORD,
     DEFAULT_PORT,
     DEFAULT_USERNAME,
     DOMAIN,
+    ENTRY_TYPE_DEVICE,
+    ENTRY_TYPE_GROUP,
     GENELEC_OUI,
     LOGGER,
     MDNS_SERVICE,
@@ -41,7 +45,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     }
 )
 
-
 class GenelecSmartIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Genelec Smart IP."""
 
@@ -57,6 +60,15 @@ class GenelecSmartIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["device", "group"],
+        )
+
+    async def async_step_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure a single device entry."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -76,9 +88,21 @@ class GenelecSmartIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
 
                     if await device.test_connection():
+                        device_name = user_input[CONF_HOST]
+                        try:
+                            network = await device.get_network_config()
+                            hostname = network.get("hostname") if isinstance(network, dict) else None
+                            if isinstance(hostname, str) and hostname.strip():
+                                device_name = hostname.strip()
+                        except Exception:
+                            pass
+
                         await self.async_set_unique_id(device.unique_id)
                         self._abort_if_unique_id_configured()
-                        return self.async_create_entry(title=device.name, data=user_input)
+                        payload = dict(user_input)
+                        payload[CONF_DEVICE_NAME] = device_name
+                        payload[CONF_ENTRY_TYPE] = ENTRY_TYPE_DEVICE
+                        return self.async_create_entry(title="Genelec Device", data=payload)
                     else:
                         errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
@@ -86,9 +110,38 @@ class GenelecSmartIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="user",
+            step_id="device",
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
+        )
+
+    async def async_step_group(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure a zone-group hub entry."""
+        await self.async_set_unique_id("genelec_group_hub")
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title="Genelec Zone",
+            data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_GROUP,
+            },
+        )
+
+    async def async_step_import(self, user_input: dict[str, Any]) -> FlowResult:
+        """Handle import-style creation for group entries."""
+        entry_type = user_input.get(CONF_ENTRY_TYPE)
+        if entry_type != ENTRY_TYPE_GROUP:
+            return self.async_abort(reason="discovery_failed")
+
+        await self.async_set_unique_id("genelec_group_hub")
+        self._abort_if_unique_id_configured()
+
+        return self.async_create_entry(
+            title="Genelec Zone",
+            data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_GROUP,
+            },
         )
 
     async def async_step_zeroconf(
@@ -192,8 +245,10 @@ class GenelecSmartIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_USERNAME: user_input.get(CONF_USERNAME, DEFAULT_USERNAME),
                             CONF_PASSWORD: user_input.get(CONF_PASSWORD, DEFAULT_PASSWORD),
                             CONF_API_VERSION: DEFAULT_API_VERSION,
+                            CONF_DEVICE_NAME: device_info.get("name") or "Genelec Smart IP",
+                            CONF_ENTRY_TYPE: ENTRY_TYPE_DEVICE,
                         }
-                        return self.async_create_entry(title=device.name, data=data)
+                        return self.async_create_entry(title="Genelec Device", data=data)
                     else:
                         errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except

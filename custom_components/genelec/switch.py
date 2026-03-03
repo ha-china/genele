@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 if TYPE_CHECKING:
     from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, SINGLE_HUB_ID
 from .device import GenelecSmartIPDevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,11 +65,10 @@ class GenelecRJ45LedsSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "RJ45 LEDs"
         self._attr_unique_id = f"{device.unique_id}_rj45_leds"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, device.unique_id)},
-            "name": device.name,
+            "identifiers": {(DOMAIN, SINGLE_HUB_ID)},
+            "name": device_info.get("_device_name", "Genelec Device"),
             "manufacturer": "Genelec",
-            "model": device_info.get("model", "Unknown"),
-            "sw_version": device_info.get("fwId", "Unknown"),
+            "model": "Smart IP",
         }
         self._attr_has_entity_name = True
         self._rj45_enabled = True
@@ -153,11 +152,10 @@ class GenelecClipLedSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "Clip LED"
         self._attr_unique_id = f"{device.unique_id}_clip_led"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, device.unique_id)},
-            "name": device.name,
+            "identifiers": {(DOMAIN, SINGLE_HUB_ID)},
+            "name": device_info.get("_device_name", "Genelec Device"),
             "manufacturer": "Genelec",
-            "model": device_info.get("model", "Unknown"),
-            "sw_version": device_info.get("fwId", "Unknown"),
+            "model": "Smart IP",
         }
         self._attr_has_entity_name = True
         self._clip_enabled = False

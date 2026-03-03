@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .const import CONF_ENTRY_TYPE, CONF_ZONE_ID, CONF_ZONE_NAME, ENTRY_TYPE_DEVICE, ENTRY_TYPE_GROUP, SINGLE_HUB_ID, GROUP_HUB_ID
 
 
 async def async_setup_entry(
@@ -20,31 +21,43 @@ async def async_setup_entry(
     """Set up Genelec Smart IP number entities."""
     data = hass.data[DOMAIN].get(entry.entry_id)
     coordinator = data.coordinator if data else None
+    entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE)
+
+    if entry_type == ENTRY_TYPE_GROUP:
+        zones: dict[int, str] = {}
+        for data_key, data_item in hass.data.get(DOMAIN, {}).items():
+            if data_key.startswith("_") or data_key == entry.entry_id:
+                continue
+            config_entry = hass.config_entries.async_get_entry(data_key)
+            if not config_entry:
+                continue
+            if config_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) != ENTRY_TYPE_DEVICE:
+                continue
+
+            zone_info = getattr(data_item, "zone_info", {}) or {}
+            if not zone_info and getattr(data_item, "coordinator", None) and data_item.coordinator.data:
+                zone_info = data_item.coordinator.data.get("zone_info", {}) or {}
+            try:
+                zone_id = int(zone_info.get("zone"))
+            except (TypeError, ValueError):
+                continue
+            if zone_id <= 0:
+                continue
+            zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
+            zones[zone_id] = zone_name
+
+        async_add_entities([
+            GenelecZoneLedIntensityNumber(hass, zone_id, zone_name)
+            for zone_id, zone_name in sorted(zones.items())
+        ])
+        return
+
     device = data.device if data and data.device else None
     if not device:
         return
 
     device_info = data.device_info if data else {}
-    entities: list[NumberEntity] = [
-        GenelecLedIntensityNumber(device, device_info, coordinator)
-    ]
-
-    zone_info = data.zone_info if data else {}
-    if (not zone_info) and coordinator and coordinator.data:
-        zone_info = coordinator.data.get("zone_info", {}) or {}
-    try:
-        zone_id = int(zone_info.get("zone")) if zone_info.get("zone") is not None else None
-    except (TypeError, ValueError):
-        zone_id = None
-    if zone_id is not None and zone_id > 0:
-        zone_registry = hass.data[DOMAIN].setdefault("_zone_led_entities", set())
-        zone_key = f"group_zone_{zone_id}"
-        if zone_key not in zone_registry:
-            zone_registry.add(zone_key)
-            zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
-            entities.append(GenelecZoneLedIntensityNumber(hass, zone_id, zone_name))
-
-    async_add_entities(entities)
+    async_add_entities([GenelecLedIntensityNumber(device, device_info, coordinator)])
 
 
 class _LedBase:
@@ -68,11 +81,10 @@ class GenelecLedIntensityNumber(_LedBase, CoordinatorEntity, NumberEntity):
         self._attr_name = "LED Intensity"
         self._attr_unique_id = f"{device.unique_id}_led_intensity"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, device.unique_id)},
-            "name": device.name,
+            "identifiers": {(DOMAIN, SINGLE_HUB_ID)},
+            "name": device_info.get("_device_name", "Genelec Device"),
             "manufacturer": "Genelec",
-            "model": device_info.get("model", "Unknown"),
-            "sw_version": device_info.get("fwId", "Unknown"),
+            "model": "Smart IP",
         }
         self._attr_has_entity_name = True
         self._attr_native_value = 100.0
@@ -115,11 +127,11 @@ class GenelecZoneLedIntensityNumber(_LedBase, NumberEntity):
         self._zone_id = zone_id
         self._zone_name = zone_name
         self._attr_has_entity_name = True
-        self._attr_name = "LED Intensity"
+        self._attr_name = f"{zone_name} LED Intensity"
         self._attr_unique_id = f"genelec_group_zone_{zone_id}_led_intensity"
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"group_zone_{zone_id}")},
-            "name": f"Genelec Zone {zone_name}",
+            "identifiers": {(DOMAIN, GROUP_HUB_ID)},
+            "name": "Genelec Zone",
             "manufacturer": "Genelec",
             "model": "Zone Group",
         }

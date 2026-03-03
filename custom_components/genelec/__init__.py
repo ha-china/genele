@@ -22,12 +22,18 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    CONF_ENTRY_TYPE,
     CONF_API_VERSION,
+    CONF_DEVICE_NAME,
+    CONF_ZONE_ID,
+    CONF_ZONE_NAME,
     DEFAULT_API_VERSION,
     DEFAULT_PASSWORD,
     DEFAULT_PORT,
     DEFAULT_USERNAME,
     DOMAIN,
+    ENTRY_TYPE_DEVICE,
+    ENTRY_TYPE_GROUP,
     LOGGER,
     MAX_VOLUME_DB,
     MIN_VOLUME_DB,
@@ -105,11 +111,35 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant,
-                            entry: GenelecSmartIPConfigEntry) -> bool:
+                             entry: GenelecSmartIPConfigEntry) -> bool:
     """Set up Genelec Smart IP from a config entry."""
     LOGGER.info("Setting up Genelec Smart IP integration")
 
     hass.data.setdefault(DOMAIN, {})
+
+    entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE)
+
+    if entry_type == ENTRY_TYPE_GROUP and entry.title != "Genelec Zone":
+        hass.config_entries.async_update_entry(entry, title="Genelec Zone")
+    if entry_type == ENTRY_TYPE_DEVICE and entry.title != "Genelec Device":
+        hass.config_entries.async_update_entry(entry, title="Genelec Device")
+
+    # Group-only entry: expose zone entities without creating direct device connection.
+    if entry_type == ENTRY_TYPE_GROUP:
+        data = GenelecSmartIPData()
+        data.zone_info = {
+            "zone": entry.data.get(CONF_ZONE_ID),
+            "name": entry.data.get(CONF_ZONE_NAME, ""),
+        }
+        hass.data[DOMAIN][entry.entry_id] = data
+
+        group_platforms = [
+            Platform.MEDIA_PLAYER,
+            Platform.SELECT,
+            Platform.NUMBER,
+        ]
+        await hass.config_entries.async_forward_entry_setups(entry, group_platforms)
+        return True
 
     # Create a shared aiohttp session for this integration entry
     # Device supports max 4 connections, but we only need 1
@@ -147,6 +177,8 @@ async def async_setup_entry(hass: HomeAssistant,
     # Fetch device_info early
     try:
         device_info_data = await device.get_device_info()
+        device_display_name = entry.data.get(CONF_DEVICE_NAME) or entry.title or device.name
+        device_info_data["_device_name"] = device_display_name
         data.device_info = device_info_data
         device._device_info = device_info_data
     except Exception as e:
@@ -252,6 +284,20 @@ async def async_setup_entry(hass: HomeAssistant,
                 finally:
                     data.api_root_checked = True
 
+            # Auto-bootstrap a dedicated group entry for this zone
+            zone_id = data.zone_info.get("zone")
+            zone_name = str(data.zone_info.get("name", "")).strip()
+            if isinstance(zone_id, int) and zone_id > 0 and zone_name:
+                await hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": "import"},
+                    data={
+                        CONF_ENTRY_TYPE: ENTRY_TYPE_GROUP,
+                        CONF_ZONE_ID: zone_id,
+                        CONF_ZONE_NAME: zone_name,
+                    },
+                )
+
             return {
                 "volume": volume_data,
                 "power": power_data,
@@ -310,7 +356,7 @@ async def async_setup_entry(hass: HomeAssistant,
     async def handle_get_api_root(call):
         """Handle API root query service (/public/{version}/)."""
         entity_ids = call.data.get("entity_id", [])
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
@@ -398,7 +444,7 @@ async def async_setup_entry(hass: HomeAssistant,
     async def handle_wake_up(call):
         """Handle wake up service."""
         entity_ids = call.data.get("entity_id", [])
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
@@ -409,7 +455,7 @@ async def async_setup_entry(hass: HomeAssistant,
     async def handle_set_standby(call):
         """Handle set standby service."""
         entity_ids = call.data.get("entity_id", [])
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
@@ -420,7 +466,7 @@ async def async_setup_entry(hass: HomeAssistant,
     async def handle_boot_device(call):
         """Handle boot device service."""
         entity_ids = call.data.get("entity_id", [])
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
@@ -491,7 +537,7 @@ async def async_setup_entry(hass: HomeAssistant,
         if level is None:
             return
         level = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, float(level)))
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
@@ -506,7 +552,7 @@ async def async_setup_entry(hass: HomeAssistant,
         if intensity is None:
             return
         intensity = max(0, min(100, int(intensity)))
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
 
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
@@ -527,7 +573,7 @@ async def async_setup_entry(hass: HomeAssistant,
             return
 
         entity_ids = call.data.get("entity_id", [])
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
@@ -550,7 +596,7 @@ async def async_setup_entry(hass: HomeAssistant,
             LOGGER.warning("mode=static requires ip, mask and gw")
             return
 
-        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        target_entry_ids = await _get_target_entry_ids(entity_ids)
         for target_entry_id in target_entry_ids:
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
@@ -681,7 +727,14 @@ async def async_unload_entry(hass: HomeAssistant,
     """Unload a config entry."""
     LOGGER.info("Unloading Genelec Smart IP integration")
 
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+    entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE)
+    unload_platforms = (
+        [Platform.MEDIA_PLAYER, Platform.SELECT, Platform.NUMBER]
+        if entry_type == ENTRY_TYPE_GROUP
+        else PLATFORMS
+    )
+
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, unload_platforms):
         data = hass.data[DOMAIN].pop(entry.entry_id, None)
         if data and hasattr(data, 'session') and data.session:
             await data.session.close()
