@@ -249,6 +249,15 @@ class GenelecSmartIPDevice:
             "PUT", ENDPOINT_AUDIO_INPUTS, {"input": sanitized}, quiet_statuses={404}
         )
 
+    async def set_input_single(self, input_source: str) -> dict[str, Any]:
+        """Set a single audio input using scalar payload for compatibility."""
+        source = str(input_source)
+        if source not in _VALID_INPUTS:
+            raise ValueError("input_source must be one of: A, AoIP01, AoIP02")
+        return await self._request(
+            "PUT", ENDPOINT_AUDIO_INPUTS, {"input": source}, quiet_statuses={404}
+        )
+
     async def get_led_settings(self) -> dict[str, Any]:
         """Get LED settings."""
         return await self._request("GET", ENDPOINT_DEVICE_LED)

@@ -67,15 +67,25 @@ async def async_setup_entry(
 
     if entry_type == ENTRY_TYPE_GROUP:
         zones: dict[int, str] = {}
-        for data_key, data_item in hass.data.get(DOMAIN, {}).items():
-            if data_key.startswith("_") or data_key == entry.entry_id:
+        for device_entry in hass.config_entries.async_entries(DOMAIN):
+            if device_entry.entry_id == entry.entry_id:
                 continue
-            config_entry = hass.config_entries.async_get_entry(data_key)
-            if not config_entry:
-                continue
-            if config_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) != ENTRY_TYPE_DEVICE:
+            if device_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) != ENTRY_TYPE_DEVICE:
                 continue
 
+            zone_id = device_entry.data.get(CONF_ZONE_ID)
+            zone_name = str(device_entry.data.get(CONF_ZONE_NAME, "")).strip()
+            try:
+                zone_id = int(zone_id)
+            except (TypeError, ValueError):
+                zone_id = None
+            if zone_id and zone_name:
+                zones[zone_id] = zone_name
+                continue
+
+            data_item = hass.data.get(DOMAIN, {}).get(device_entry.entry_id)
+            if not data_item:
+                continue
             zone_info = getattr(data_item, "zone_info", {}) or {}
             if not zone_info and getattr(data_item, "coordinator", None) and data_item.coordinator.data:
                 zone_info = data_item.coordinator.data.get("zone_info", {}) or {}

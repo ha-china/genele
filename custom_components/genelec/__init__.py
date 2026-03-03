@@ -97,6 +97,8 @@ class GenelecSmartIPData:
         self.api_root_checked: bool = False
         self.lock = asyncio.Lock()  # Lock to ensure only one request at a time
         self.poll_tick: int = 0
+        self.zone_persisted: bool = False
+        self.group_bootstrapped: bool = False
 
 
 type GenelecSmartIPConfigEntry = ConfigEntry[GenelecSmartIPData]
@@ -260,13 +262,35 @@ async def async_setup_entry(hass: HomeAssistant,
                     # 404 is expected for devices without AoIP/Dante module
                     LOGGER.debug("AoIP identity not available (device may not have Dante): %s", e)
                     data.aoip_identity = {}  # Set empty dict to prevent repeated attempts
-            if not data.zone_info:
+            if data.poll_tick % 6 == 0 or not data.zone_info:
                 try:
-                    data.zone_info = await device.get_zone_info()
+                    latest_zone = await device.get_zone_info()
+                    if isinstance(latest_zone, dict) and latest_zone:
+                        data.zone_info = latest_zone
                     LOGGER.debug("Zone info: %s", data.zone_info)
                 except Exception as e:
                     LOGGER.debug("Zone info not available: %s", e)
-                    data.zone_info = {}  # Set empty dict to prevent repeated attempts
+                    if not data.zone_info:
+                        data.zone_info = {}
+
+            if entry_type == ENTRY_TYPE_DEVICE and data.zone_info:
+                zone_id = data.zone_info.get("zone")
+                zone_name = str(data.zone_info.get("name", "")).strip()
+                if isinstance(zone_id, int) and zone_id > 0 and zone_name:
+                    zone_changed = False
+                    if entry.data.get(CONF_ZONE_ID) != zone_id or entry.data.get(CONF_ZONE_NAME) != zone_name:
+                        updated_entry_data = dict(entry.data)
+                        updated_entry_data[CONF_ZONE_ID] = zone_id
+                        updated_entry_data[CONF_ZONE_NAME] = zone_name
+                        hass.config_entries.async_update_entry(entry, data=updated_entry_data)
+                        zone_changed = True
+                    data.zone_persisted = True
+
+                    if zone_changed:
+                        for cfg_entry in hass.config_entries.async_entries(DOMAIN):
+                            if cfg_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GROUP:
+                                await hass.config_entries.async_reload(cfg_entry.entry_id)
+
             if not data.profile_list:
                 try:
                     data.profile_list = await device.get_profile_list()
@@ -284,10 +308,10 @@ async def async_setup_entry(hass: HomeAssistant,
                 finally:
                     data.api_root_checked = True
 
-            # Auto-bootstrap a dedicated group entry for this zone
+            # Auto-bootstrap group hub entry once
             zone_id = data.zone_info.get("zone")
             zone_name = str(data.zone_info.get("name", "")).strip()
-            if isinstance(zone_id, int) and zone_id > 0 and zone_name:
+            if not data.group_bootstrapped and isinstance(zone_id, int) and zone_id > 0 and zone_name:
                 await hass.config_entries.flow.async_init(
                     DOMAIN,
                     context={"source": "import"},
@@ -297,6 +321,7 @@ async def async_setup_entry(hass: HomeAssistant,
                         CONF_ZONE_NAME: zone_name,
                     },
                 )
+                data.group_bootstrapped = True
 
             return {
                 "volume": volume_data,

@@ -60,15 +60,26 @@ async def async_setup_entry(
 
     if entry_type == ENTRY_TYPE_GROUP:
         zones: dict[int, str] = {}
-        for data_key, data_item in hass.data.get(DOMAIN, {}).items():
-            if data_key.startswith("_") or data_key == entry.entry_id:
+        for device_entry in hass.config_entries.async_entries(DOMAIN):
+            if device_entry.entry_id == entry.entry_id:
                 continue
-            config_entry = hass.config_entries.async_get_entry(data_key)
-            if not config_entry:
-                continue
-            if config_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) != ENTRY_TYPE_DEVICE:
+            if device_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) != ENTRY_TYPE_DEVICE:
                 continue
 
+            zone_id = device_entry.data.get(CONF_ZONE_ID)
+            zone_name = str(device_entry.data.get(CONF_ZONE_NAME, "")).strip()
+            try:
+                zone_id = int(zone_id)
+            except (TypeError, ValueError):
+                zone_id = None
+
+            if zone_id and zone_name:
+                zones[zone_id] = zone_name
+                continue
+
+            data_item = hass.data.get(DOMAIN, {}).get(device_entry.entry_id)
+            if not data_item:
+                continue
             zone_info = getattr(data_item, "zone_info", {}) or {}
             if not zone_info and getattr(data_item, "coordinator", None) and data_item.coordinator.data:
                 zone_info = data_item.coordinator.data.get("zone_info", {}) or {}
@@ -206,6 +217,16 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         """Set volume/mute and verify by reading back current state."""
         if self._power_state != POWER_STATE_ACTIVE:
             await self._device.wake_up()
+            # Wait briefly for the device to reach ACTIVE state before writing audio params.
+            for _ in range(4):
+                await asyncio.sleep(0.2)
+                try:
+                    state_data = await self._device.get_power_state()
+                    self._power_state = state_data.get("state", self._power_state)
+                except Exception:
+                    pass
+                if self._power_state == POWER_STATE_ACTIVE:
+                    break
 
         await self._device.set_volume(level=level, mute=mute)
         await asyncio.sleep(0.12)
@@ -238,6 +259,15 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         """Set input sources and verify by reading back current inputs."""
         if self._power_state != POWER_STATE_ACTIVE:
             await self._device.wake_up()
+            for _ in range(4):
+                await asyncio.sleep(0.2)
+                try:
+                    state_data = await self._device.get_power_state()
+                    self._power_state = state_data.get("state", self._power_state)
+                except Exception:
+                    pass
+                if self._power_state == POWER_STATE_ACTIVE:
+                    break
 
         try:
             await self._device.set_inputs(api_sources)
@@ -248,13 +278,25 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             else:
                 raise
 
-        await asyncio.sleep(0.12)
+        await asyncio.sleep(0.2)
         inputs_data = await self._device.get_inputs()
         current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
 
         if list(current) != list(api_sources):
+            if len(api_sources) == 1:
+                await self._device.set_input_single(api_sources[0])
+            else:
+                await self._device.set_inputs(api_sources)
+            await asyncio.sleep(0.2)
+            inputs_data = await self._device.get_inputs()
+            current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
+
+        if list(current) != list(api_sources):
+            # Last try: wake again then re-apply once.
+            await self._device.wake_up()
+            await asyncio.sleep(0.3)
             await self._device.set_inputs(api_sources)
-            await asyncio.sleep(0.12)
+            await asyncio.sleep(0.2)
             inputs_data = await self._device.get_inputs()
             current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
 
@@ -457,6 +499,15 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
             state = (target.coordinator.data.get("power", {}) or {}).get("state")
         if state != POWER_STATE_ACTIVE:
             await target.device.wake_up()
+            for _ in range(4):
+                await asyncio.sleep(0.2)
+                try:
+                    state_data = await target.device.get_power_state()
+                    state = state_data.get("state", state)
+                except Exception:
+                    pass
+                if state == POWER_STATE_ACTIVE:
+                    break
             self._patch_target(target, {"power": {"state": POWER_STATE_ACTIVE}})
 
     async def _set_target_volume_with_verify(
@@ -509,12 +560,23 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
             else:
                 raise
 
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.2)
         current_inputs = await target.device.get_inputs()
         current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
         if list(current) != list(api_sources):
+            if len(api_sources) == 1:
+                await target.device.set_input_single(api_sources[0])
+            else:
+                await target.device.set_inputs(api_sources)
+            await asyncio.sleep(0.2)
+            current_inputs = await target.device.get_inputs()
+            current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
+
+        if list(current) != list(api_sources):
+            await target.device.wake_up()
+            await asyncio.sleep(0.3)
             await target.device.set_inputs(api_sources)
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.2)
             current_inputs = await target.device.get_inputs()
             current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
 
