@@ -149,13 +149,13 @@
     },
     "set_volume_level": {
       "name": "设置音量",
-      "description": "设置音量级别。",
+      "description": "设置设备灵敏度。",
       "fields": {
         "zone_id": {"name": "区域 ID", "description": "可选。应用到该区域 ID 内所有音箱。"},
         "zone_name": {"name": "区域名称", "description": "可选。应用到该区域名称内所有音箱。"},
         "level": {
-          "name": "级别",
-          "description": "音量级别（-200 到 0 dB）。"
+          "name": "灵敏度",
+          "description": "灵敏度（-200 到 0 dB）。"
         }
       }
     },

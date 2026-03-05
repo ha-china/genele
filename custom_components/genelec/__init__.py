@@ -18,6 +18,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -192,11 +193,7 @@ async def async_setup_entry(hass: HomeAssistant,
             # Fetch all data in sequence to avoid overwhelming the device
             volume_data = await device.get_volume()
             power_data = await device.get_power_state()
-            power_state = power_data.get("state")
-            if power_state == POWER_STATE_ACTIVE:
-                inputs_data = await device.get_inputs()
-            else:
-                inputs_data = data.inputs_data
+            inputs_data = await device.get_inputs()
             if data.poll_tick % 3 == 0 or not data.events_data:
                 events_data = await device.get_events()
                 data.events_data = events_data
@@ -517,10 +514,28 @@ async def async_setup_entry(hass: HomeAssistant,
     async def _get_target_entry_ids_from_call(call) -> set[str]:
         """Resolve targets from entity IDs and optional zone filters."""
         entity_ids = call.data.get("entity_id", [])
+        device_ids = call.data.get("device_id", [])
         zone_id_raw = call.data.get("zone_id")
         zone_name_raw = call.data.get("zone_name")
 
-        target_entry_ids = await _get_target_entry_ids(entity_ids)
+        target_entry_ids: set[str] = set()
+        if entity_ids:
+            target_entry_ids = await _get_target_entry_ids(entity_ids)
+        elif device_ids:
+            ent_reg = er.async_get(hass)
+            dev_reg = dr.async_get(hass)
+            for device_id in device_ids:
+                if dev_reg.async_get(device_id) is None:
+                    continue
+                for ent in er.async_entries_for_device(ent_reg, device_id):
+                    if ent.config_entry_id:
+                        target_entry_ids.add(ent.config_entry_id)
+        else:
+            target_entry_ids = {
+                key for key in hass.data.get(DOMAIN, {})
+                if not key.startswith("_")
+            }
+
         if zone_id_raw is None and zone_name_raw is None:
             return target_entry_ids
 
@@ -555,18 +570,56 @@ async def async_setup_entry(hass: HomeAssistant,
 
     async def handle_set_volume_level(call):
         """Handle set volume level service."""
-        entity_ids = call.data.get("entity_id", [])
+        has_entity = bool(call.data.get("entity_id"))
+        has_device = bool(call.data.get("device_id"))
+        has_zone = call.data.get("zone_id") is not None or call.data.get("zone_name") is not None
+        if not has_entity and not has_device and not has_zone:
+            LOGGER.warning("set_volume_level requires entity_id, zone_id, or zone_name")
+            return
+
         level = call.data.get("level")
         if level is None:
             return
         level = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, float(level)))
-        target_entry_ids = await _get_target_entry_ids(entity_ids)
+        target_entry_ids = await _get_target_entry_ids_from_call(call)
+        if not target_entry_ids:
+            LOGGER.warning("set_volume_level did not resolve any target entries")
+            return
         for target_entry_id in target_entry_ids:
+            cfg_entry = hass.config_entries.async_get_entry(target_entry_id)
+            if cfg_entry and cfg_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE) == ENTRY_TYPE_GROUP and not has_zone:
+                # Prevent group entry from being adjusted by a single-device call.
+                continue
+
             target_data = hass.data[DOMAIN].get(target_entry_id)
             if not target_data or not target_data.device:
                 continue
+
+            # Ensure ACTIVE before applying sensitivity.
+            try:
+                power = await target_data.device.get_power_state()
+                if power.get("state") != POWER_STATE_ACTIVE:
+                    await target_data.device.set_power_state(POWER_STATE_ACTIVE)
+                    await asyncio.sleep(0.6)
+            except Exception:
+                await target_data.device.wake_up()
+                await asyncio.sleep(0.6)
+
             await target_data.device.set_volume(level=level)
-            await _patch_coordinator(target_data, {"volume": {"level": level}})
+            await asyncio.sleep(0.15)
+            current = await target_data.device.get_volume()
+            applied = float(current.get("level", level))
+
+            # Firmware compatibility fallback to -130..0 if needed.
+            if abs(applied - float(level)) > 0.2:
+                fallback_level = max(-130.0, min(0.0, float(level)))
+                if abs(fallback_level - float(level)) > 0.05:
+                    await target_data.device.set_volume(level=fallback_level)
+                    await asyncio.sleep(0.15)
+                    current = await target_data.device.get_volume()
+                    applied = float(current.get("level", fallback_level))
+
+            await _patch_coordinator(target_data, {"volume": {"level": applied}})
 
     async def handle_set_led_intensity(call):
         """Handle set LED intensity service."""

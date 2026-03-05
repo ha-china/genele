@@ -24,7 +24,7 @@ async def async_setup_entry(
     entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE)
 
     if entry_type == ENTRY_TYPE_GROUP:
-        zones: dict[int, str] = {}
+        zones: dict[int, tuple[str, int]] = {}
         for device_entry in hass.config_entries.async_entries(DOMAIN):
             if device_entry.entry_id == entry.entry_id:
                 continue
@@ -38,7 +38,8 @@ async def async_setup_entry(
             except (TypeError, ValueError):
                 zone_id = None
             if zone_id and zone_name:
-                zones[zone_id] = zone_name
+                prev_name, prev_count = zones.get(zone_id, (zone_name, 0))
+                zones[zone_id] = (prev_name, prev_count + 1)
                 continue
 
             data_item = hass.data.get(DOMAIN, {}).get(device_entry.entry_id)
@@ -54,11 +55,12 @@ async def async_setup_entry(
             if zone_id <= 0:
                 continue
             zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
-            zones[zone_id] = zone_name
+            prev_name, prev_count = zones.get(zone_id, (zone_name, 0))
+            zones[zone_id] = (prev_name, prev_count + 1)
 
         async_add_entities([
             GenelecZoneLedIntensityNumber(hass, zone_id, zone_name)
-            for zone_id, zone_name in sorted(zones.items())
+            for zone_id, (zone_name, member_count) in sorted(zones.items())
         ])
         return
 

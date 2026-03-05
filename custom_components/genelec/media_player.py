@@ -58,7 +58,7 @@ async def async_setup_entry(
     entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_DEVICE)
 
     if entry_type == ENTRY_TYPE_GROUP:
-        zones: dict[int, str] = {}
+        zones: dict[int, tuple[str, int]] = {}
         for device_entry in hass.config_entries.async_entries(DOMAIN):
             if device_entry.entry_id == entry.entry_id:
                 continue
@@ -73,7 +73,8 @@ async def async_setup_entry(
                 zone_id = None
 
             if zone_id and zone_name:
-                zones[zone_id] = zone_name
+                prev_name, prev_count = zones.get(zone_id, (zone_name, 0))
+                zones[zone_id] = (prev_name, prev_count + 1)
                 continue
 
             data_item = hass.data.get(DOMAIN, {}).get(device_entry.entry_id)
@@ -89,11 +90,12 @@ async def async_setup_entry(
             if zone_id <= 0:
                 continue
             zone_name = str(zone_info.get("name") or f"Zone {zone_id}")
-            zones[zone_id] = zone_name
+            prev_name, prev_count = zones.get(zone_id, (zone_name, 0))
+            zones[zone_id] = (prev_name, prev_count + 1)
 
         async_add_entities([
             GenelecZoneMediaPlayer(hass, zone_id, zone_name)
-            for zone_id, zone_name in sorted(zones.items())
+            for zone_id, (zone_name, member_count) in sorted(zones.items())
         ])
         return
 
@@ -207,6 +209,40 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
                 updated[key] = value
         self._coordinator.async_set_updated_data(updated)
 
+    async def _ensure_active(self) -> None:
+        """Ensure the speaker is ACTIVE before audio/input writes."""
+        if self._power_state == POWER_STATE_ACTIVE:
+            return
+
+        try:
+            await self._device.set_power_state(POWER_STATE_ACTIVE)
+        except Exception:
+            await self._device.wake_up()
+
+        for _ in range(12):
+            await asyncio.sleep(0.25)
+            try:
+                state_data = await self._device.get_power_state()
+                self._power_state = state_data.get("state", self._power_state)
+            except Exception:
+                pass
+            if self._power_state == POWER_STATE_ACTIVE:
+                break
+
+    async def _refresh_inputs_from_device(self) -> list[str]:
+        """Read current inputs from device and sync coordinator cache."""
+        try:
+            inputs_data = await self._device.get_inputs()
+        except Exception:
+            return self._current_sources
+
+        current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
+        current_list = list(current)
+        self._current_sources = current_list
+        self._current_source = self._sources_to_display(current_list)
+        self._push_coordinator_patch({"inputs": {"input": current_list}})
+        return current_list
+
     async def _set_volume_with_verify(
         self,
         *,
@@ -214,18 +250,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         mute: bool | None = None,
     ) -> dict[str, Any]:
         """Set volume/mute and verify by reading back current state."""
-        if self._power_state != POWER_STATE_ACTIVE:
-            await self._device.wake_up()
-            # Wait briefly for the device to reach ACTIVE state before writing audio params.
-            for _ in range(4):
-                await asyncio.sleep(0.2)
-                try:
-                    state_data = await self._device.get_power_state()
-                    self._power_state = state_data.get("state", self._power_state)
-                except Exception:
-                    pass
-                if self._power_state == POWER_STATE_ACTIVE:
-                    break
+        await self._ensure_active()
 
         await self._device.set_volume(level=level, mute=mute)
         await asyncio.sleep(0.12)
@@ -256,17 +281,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
 
     async def _set_inputs_with_verify(self, api_sources: list[str]) -> list[str]:
         """Set input sources and verify by reading back current inputs."""
-        if self._power_state != POWER_STATE_ACTIVE:
-            await self._device.wake_up()
-            for _ in range(4):
-                await asyncio.sleep(0.2)
-                try:
-                    state_data = await self._device.get_power_state()
-                    self._power_state = state_data.get("state", self._power_state)
-                except Exception:
-                    pass
-                if self._power_state == POWER_STATE_ACTIVE:
-                    break
+        await self._ensure_active()
 
         try:
             await self._device.set_inputs(api_sources)
@@ -277,7 +292,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             else:
                 raise
 
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
         inputs_data = await self._device.get_inputs()
         current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
 
@@ -286,16 +301,16 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
                 await self._device.set_input_single(api_sources[0])
             else:
                 await self._device.set_inputs(api_sources)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.3)
             inputs_data = await self._device.get_inputs()
             current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
 
         if list(current) != list(api_sources):
             # Last try: wake again then re-apply once.
-            await self._device.wake_up()
-            await asyncio.sleep(0.3)
+            await self._ensure_active()
+            await asyncio.sleep(0.6)
             await self._device.set_inputs(api_sources)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.3)
             inputs_data = await self._device.get_inputs()
             current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
 
@@ -369,6 +384,20 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         """Boolean if volume is currently muted."""
         return self._is_muted
 
+    @property
+    def media_title(self) -> str | None:
+        """Show current sensitivity level as card subtitle text."""
+        suffix = " (Muted)" if self._is_muted else ""
+        return f"Sensitivity {round(float(self._volume), 1)} dB{suffix}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose native dB volume while keeping standard media_player slider."""
+        return {
+            "volume_db": round(float(self._volume), 1),
+            "sensitivity_db": round(float(self._volume), 1),
+        }
+
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
         if source == INPUT_NONE:
@@ -383,9 +412,12 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             api_sources = [api_source]
         
         applied = await self._set_inputs_with_verify(api_sources)
-        self._current_sources = applied
-        self._current_source = source
-        self._push_coordinator_patch({"inputs": {"input": applied}})
+        if list(applied) != list(api_sources):
+            # keep UI honest with the device readback value
+            applied = await self._refresh_inputs_from_device()
+        self._current_sources = list(applied)
+        self._current_source = self._sources_to_display(self._current_sources)
+        self._push_coordinator_patch({"inputs": {"input": self._current_sources}})
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:
@@ -497,9 +529,12 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
         if target.coordinator and target.coordinator.data:
             state = (target.coordinator.data.get("power", {}) or {}).get("state")
         if state != POWER_STATE_ACTIVE:
-            await target.device.wake_up()
-            for _ in range(4):
-                await asyncio.sleep(0.2)
+            try:
+                await target.device.set_power_state(POWER_STATE_ACTIVE)
+            except Exception:
+                await target.device.wake_up()
+            for _ in range(12):
+                await asyncio.sleep(0.25)
                 try:
                     state_data = await target.device.get_power_state()
                     state = state_data.get("state", state)
@@ -559,7 +594,7 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
             else:
                 raise
 
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
         current_inputs = await target.device.get_inputs()
         current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
         if list(current) != list(api_sources):
@@ -567,15 +602,15 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
                 await target.device.set_input_single(api_sources[0])
             else:
                 await target.device.set_inputs(api_sources)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.3)
             current_inputs = await target.device.get_inputs()
             current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
 
         if list(current) != list(api_sources):
             await target.device.wake_up()
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.6)
             await target.device.set_inputs(api_sources)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.3)
             current_inputs = await target.device.get_inputs()
             current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
 
@@ -669,9 +704,18 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
         return self._is_muted
 
     @property
+    def media_title(self) -> str | None:
+        """Show current sensitivity level as card subtitle text."""
+        suffix = " (Muted)" if self._is_muted else ""
+        return f"Sensitivity {round(float(self._volume), 1)} dB{suffix}"
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return zone diagnostics to help troubleshooting."""
-        return self._zone_diagnostics(self._zone_targets())
+        attrs = self._zone_diagnostics(self._zone_targets())
+        attrs["volume_db"] = round(float(self._volume), 1)
+        attrs["sensitivity_db"] = round(float(self._volume), 1)
+        return attrs
 
     async def async_select_source(self, source: str) -> None:
         if source == INPUT_NONE:
@@ -686,7 +730,17 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
             applied = await self._set_target_inputs_with_verify(target, api_sources)
             self._patch_target(target, {"inputs": {"input": applied}})
 
-        self._current_source = source
+        if list(applied) != list(api_sources):
+            # Pull once from first target to keep the zone UI aligned.
+            targets = self._zone_targets()
+            if targets:
+                try:
+                    current_inputs = await targets[0].device.get_inputs()
+                    applied = current_inputs.get("input", []) if isinstance(current_inputs, dict) else applied
+                except Exception:
+                    pass
+
+        self._current_source = self._sources_to_display(list(applied))
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:
