@@ -155,7 +155,7 @@
         "zone_name": {"name": "区域名称", "description": "可选。应用到该区域名称内所有音箱。"},
         "level": {
           "name": "灵敏度",
-          "description": "灵敏度（-200 到 0 dB）。"
+          "description": "灵敏度（-130 到 0 dB）。"
         }
       }
     },

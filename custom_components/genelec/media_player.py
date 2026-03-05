@@ -46,6 +46,32 @@ from .device import GenelecSmartIPDevice
 _LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_api_inputs(value: Any) -> list[str]:
+    """Normalize /audio/inputs payload to API input list."""
+    if isinstance(value, dict):
+        value = value.get("input", [])
+
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        return [value] if value else []
+
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if isinstance(item, str) and item]
+
+    return []
+
+
+def _display_source_from_api_inputs(api_sources: list[str]) -> str:
+    """Convert API source list to display name."""
+    if not api_sources:
+        return INPUT_NONE
+    if len(api_sources) > 1:
+        return INPUT_MIX
+    return INPUT_API_TO_DISPLAY.get(api_sources[0], api_sources[0])
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -176,7 +202,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         if power_data:
             self._power_state = power_data.get("state", POWER_STATE_ACTIVE)
         
-        inputs = inputs_data.get("input", [])
+        inputs = _normalize_api_inputs(inputs_data)
         self._current_sources = inputs
         self._current_source = self._sources_to_display(inputs)
 
@@ -188,11 +214,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
 
     def _sources_to_display(self, api_sources: list[str]) -> str:
         """Convert API source list to display name."""
-        if not api_sources:
-            return INPUT_NONE
-        if len(api_sources) > 1:
-            return INPUT_MIX
-        return INPUT_API_TO_DISPLAY.get(api_sources[0], api_sources[0])
+        return _display_source_from_api_inputs(api_sources)
 
     def _push_coordinator_patch(self, patch: dict[str, Any]) -> None:
         """Patch coordinator data locally to avoid extra API refresh calls."""
@@ -236,8 +258,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
         except Exception:
             return self._current_sources
 
-        current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
-        current_list = list(current)
+        current_list = _normalize_api_inputs(inputs_data)
         self._current_sources = current_list
         self._current_source = self._sources_to_display(current_list)
         self._push_coordinator_patch({"inputs": {"input": current_list}})
@@ -294,16 +315,13 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
 
         await asyncio.sleep(0.3)
         inputs_data = await self._device.get_inputs()
-        current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
+        current = _normalize_api_inputs(inputs_data)
 
         if list(current) != list(api_sources):
-            if len(api_sources) == 1:
-                await self._device.set_input_single(api_sources[0])
-            else:
-                await self._device.set_inputs(api_sources)
+            await self._device.set_inputs(api_sources)
             await asyncio.sleep(0.3)
             inputs_data = await self._device.get_inputs()
-            current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
+            current = _normalize_api_inputs(inputs_data)
 
         if list(current) != list(api_sources):
             # Last try: wake again then re-apply once.
@@ -312,7 +330,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             await self._device.set_inputs(api_sources)
             await asyncio.sleep(0.3)
             inputs_data = await self._device.get_inputs()
-            current = inputs_data.get("input", []) if isinstance(inputs_data, dict) else []
+            current = _normalize_api_inputs(inputs_data)
 
         return list(current)
 
@@ -329,7 +347,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
             self._is_muted = volume_data.get("mute", False)
             self._power_state = power_data.get("state", POWER_STATE_STANDBY)
 
-            inputs = inputs_data.get("input", [])
+            inputs = _normalize_api_inputs(inputs_data)
             self._current_sources = inputs
             self._current_source = self._sources_to_display(inputs)
 
@@ -349,7 +367,7 @@ class GenelecSmartIPMediaPlayer(MediaPlayerEntity):
                 self._power_state = power_data.get("state", POWER_STATE_STANDBY)
 
                 inputs_data = await self._device.get_inputs()
-                inputs = inputs_data.get("input", [])
+                inputs = _normalize_api_inputs(inputs_data)
                 self._current_sources = inputs
                 self._current_source = self._sources_to_display(inputs)
 
@@ -523,6 +541,10 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
                 targets.append(value)
         return targets
 
+    def _sources_to_display(self, api_sources: list[str]) -> str:
+        """Convert API source list to display name."""
+        return _display_source_from_api_inputs(api_sources)
+
     async def _wake_target_if_needed(self, target: Any) -> None:
         """Wake target if it is not ACTIVE before control commands."""
         state = None
@@ -596,15 +618,12 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
 
         await asyncio.sleep(0.3)
         current_inputs = await target.device.get_inputs()
-        current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
+        current = _normalize_api_inputs(current_inputs)
         if list(current) != list(api_sources):
-            if len(api_sources) == 1:
-                await target.device.set_input_single(api_sources[0])
-            else:
-                await target.device.set_inputs(api_sources)
+            await target.device.set_inputs(api_sources)
             await asyncio.sleep(0.3)
             current_inputs = await target.device.get_inputs()
-            current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
+            current = _normalize_api_inputs(current_inputs)
 
         if list(current) != list(api_sources):
             await target.device.wake_up()
@@ -612,7 +631,7 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
             await target.device.set_inputs(api_sources)
             await asyncio.sleep(0.3)
             current_inputs = await target.device.get_inputs()
-            current = current_inputs.get("input", []) if isinstance(current_inputs, dict) else []
+            current = _normalize_api_inputs(current_inputs)
 
         return list(current)
 
@@ -674,7 +693,7 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
         self._is_muted = volume_data.get("mute", self._is_muted)
         self._power_state = power_data.get("state", self._power_state)
 
-        inputs = inputs_data.get("input", [])
+        inputs = _normalize_api_inputs(inputs_data)
         if not inputs:
             self._current_source = INPUT_NONE
         elif len(inputs) > 1:
@@ -736,11 +755,11 @@ class GenelecZoneMediaPlayer(MediaPlayerEntity):
             if targets:
                 try:
                     current_inputs = await targets[0].device.get_inputs()
-                    applied = current_inputs.get("input", []) if isinstance(current_inputs, dict) else applied
+                    applied = _normalize_api_inputs(current_inputs)
                 except Exception:
                     pass
 
-        self._current_source = self._sources_to_display(list(applied))
+        self._current_source = _display_source_from_api_inputs(list(applied))
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:
